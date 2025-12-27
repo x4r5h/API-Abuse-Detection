@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import time
 import sqlite3
@@ -8,8 +8,8 @@ import redis
 app = Flask(__name__)
 
 CORS(app, resources={
-    r"/api/*": {
-        "origins": ["http://localhost:3000"],
+    r"/*": {
+        "origins": "*",
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "X-API-Key"]
     }
@@ -19,6 +19,7 @@ try:
     redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
     redis_client.ping()
     REDIS_AVAILABLE = True
+    print("✓ Redis connected successfully")
 except:
     print("⚠️  Redis not available - rate limiting will use in-memory fallback")
     REDIS_AVAILABLE = False
@@ -95,8 +96,8 @@ def check_blocked():
     if not hasattr(request, 'start_time'):
         request.start_time = time.time()
     
-    # Skip blocking check for monitoring endpoints
-    if is_monitoring_endpoint():
+    # Skip blocking check for monitoring endpoints and frontend pages
+    if is_monitoring_endpoint() or request.path in ['/', '/logs', '/alerts', '/ip-management']:
         return None
     
     client_id = get_client_identifier()
@@ -112,8 +113,8 @@ def apply_rate_limit():
     if not hasattr(request, 'start_time'):
         request.start_time = time.time()
     
-    # Skip rate limiting for monitoring endpoints
-    if is_monitoring_endpoint():
+    # Skip rate limiting for monitoring endpoints and frontend pages
+    if is_monitoring_endpoint() or request.path in ['/', '/logs', '/alerts', '/ip-management']:
         return None
     
     client_id = get_client_identifier()
@@ -134,8 +135,8 @@ def apply_rate_limit():
 
 @app.after_request
 def log_request(response):
-    # Skip logging for monitoring endpoints
-    if is_monitoring_endpoint():
+    # Skip logging for monitoring endpoints and frontend pages
+    if is_monitoring_endpoint() or request.path in ['/', '/logs', '/alerts', '/ip-management']:
         return response
     
     response_time = time.time() - getattr(request, 'start_time', time.time())
@@ -204,18 +205,25 @@ def block_client(client_id, reason, duration=3600):
     
     if REDIS_AVAILABLE:
         redis_client.sadd("blocked:clients", client_id)
+        redis_client.expire(f"blocked:clients", duration)
     else:
         blocked_clients.add(client_id)
 
 def unblock_client(client_id):
+    """Unblock a client and clean up from both database and Redis"""
     conn, cursor = get_db()
     cursor.execute("DELETE FROM blocked_clients WHERE identifier = ?", (client_id,))
     conn.commit()
     
     if REDIS_AVAILABLE:
+        # Remove from Redis set
         redis_client.srem("blocked:clients", client_id)
+        # Also clear any rate limit keys for this client
+        redis_client.delete(f"rate:limit:{client_id}")
     else:
         blocked_clients.discard(client_id)
+    
+    print(f"✓ Unblocked client: {client_id}")
 
 def create_alert(ip, api_key, reason, severity):
     conn, cursor = get_db()
@@ -233,9 +241,25 @@ def create_alert(ip, api_key, reason, severity):
         conn.commit()
         print(f"🚨 ALERT: {severity} - {reason} from {ip}")
 
+# ==================== FRONTEND ROUTES ====================
+
 @app.route("/")
 def home():
-    return jsonify({"status": "API Abuse Detection Platform - Backend Running"})
+    return render_template("index.html")
+
+@app.route("/logs")
+def logs_page():
+    return render_template("logs.html")
+
+@app.route("/alerts")
+def alerts_page():
+    return render_template("alerts.html")
+
+@app.route("/ip-management")
+def ip_management_page():
+    return render_template("ip-management.html")
+
+# ==================== MOCK API ROUTES ====================
 
 @app.route("/api/balance")
 def balance():
@@ -276,6 +300,8 @@ def history():
             {"id": 2, "amount": 450}
         ]
     })
+
+# ==================== MONITORING API ROUTES ====================
 
 @app.route("/api/monitoring/stats")
 def get_stats():
@@ -373,6 +399,7 @@ def get_blocked():
 
 @app.route("/api/monitoring/unblock", methods=["POST"])
 def unblock():
+    """Unblock a client and clean up Redis"""
     data = request.json
     client_id = data.get("identifier")
     
@@ -380,7 +407,181 @@ def unblock():
         return jsonify({"error": "identifier required"}), 400
     
     unblock_client(client_id)
+    
     return jsonify({"status": "success", "message": f"Unblocked {client_id}"})
+
+@app.route("/api/monitoring/logs")
+def get_logs():
+    """Get recent logs with detailed information"""
+    conn, cursor = get_db()
+    
+    cursor.execute("""
+        SELECT ip, path, method, status_code, response_time, timestamp, user_agent, api_key
+        FROM logs 
+        ORDER BY timestamp DESC 
+        LIMIT 200
+    """)
+    
+    logs = []
+    for row in cursor.fetchall():
+        logs.append({
+            "ip": row[0],
+            "path": row[1],
+            "method": row[2],
+            "status_code": row[3],
+            "response_time": round(row[4] * 1000, 2),
+            "timestamp": row[5],
+            "user_agent": row[6],
+            "api_key": row[7]
+        })
+    
+    return jsonify(logs)
+
+@app.route("/api/monitoring/block-ip", methods=["POST"])
+def block_ip_endpoint():
+    """Block an IP address manually"""
+    data = request.json
+    ip = data.get("ip")
+    reason = data.get("reason", "Manual block from dashboard")
+    duration = data.get("duration", 3600)
+    
+    if not ip:
+        return jsonify({"error": "IP address required"}), 400
+    
+    client_id = f"{ip}:manual"
+    block_client(client_id, reason, duration)
+    create_alert(ip, "manual", f"IP manually blocked: {reason}", "HIGH")
+    
+    return jsonify({
+        "status": "success",
+        "message": f"IP {ip} blocked successfully",
+        "expires_in": duration
+    })
+
+@app.route("/api/monitoring/alert/<int:alert_id>/resolve", methods=["POST"])
+def resolve_alert(alert_id):
+    """Mark an alert as resolved and unblock the associated client if needed"""
+    conn, cursor = get_db()
+    
+    # Get alert details first
+    cursor.execute("SELECT ip, api_key FROM alerts WHERE id = ?", (alert_id,))
+    result = cursor.fetchone()
+    
+    if not result:
+        return jsonify({"error": "Alert not found"}), 404
+    
+    ip, api_key = result
+    
+    # Mark alert as resolved
+    cursor.execute("UPDATE alerts SET resolved = 1 WHERE id = ?", (alert_id,))
+    conn.commit()
+    
+    # Unblock the client if they were blocked
+    client_id = f"{ip}:{api_key}"
+    unblock_client(client_id)
+    
+    print(f"✓ Alert #{alert_id} resolved and client {client_id} unblocked")
+    
+    return jsonify({"status": "success", "message": "Alert resolved and client unblocked"})
+
+# ==================== IP MANAGEMENT ====================
+
+@app.route("/api/ip-management/list")
+def get_ip_management_list():
+    """Get all managed IPs"""
+    conn, cursor = get_db()
+    
+    cursor.execute("""
+        SELECT identifier, reason, blocked_at, expires_at
+        FROM blocked_clients
+        ORDER BY blocked_at DESC
+    """)
+    
+    from datetime import datetime
+    ips = []
+    now = time.time()
+    
+    for row in cursor.fetchall():
+        identifier = row[0]
+        # Parse identifier (format: ip:api_key)
+        ip_parts = identifier.split(':')
+        ip = ip_parts[0] if ip_parts else identifier
+        
+        is_active = row[3] > now
+        
+        ips.append({
+            "id": len(ips) + 1,
+            "identifier": identifier,
+            "ip": ip,
+            "action": "blacklist" if is_active else "expired",
+            "reason": row[1],
+            "addedAt": row[2],
+            "expiresAt": row[3],
+            "active": is_active
+        })
+    
+    return jsonify(ips)
+
+@app.route("/api/ip-management/add", methods=["POST"])
+def add_ip_rule():
+    """Add a new IP management rule"""
+    data = request.json
+    ip = data.get("ip")
+    action = data.get("action", "blacklist")
+    reason = data.get("reason", "Manual entry")
+    duration = data.get("duration", "permanent")
+    
+    if not ip:
+        return jsonify({"error": "IP address required"}), 400
+    
+    # Convert duration to seconds
+    duration_map = {
+        "1h": 3600,
+        "24h": 86400,
+        "7d": 604800,
+        "30d": 2592000,
+        "permanent": 315360000  # 10 years
+    }
+    duration_seconds = duration_map.get(duration, 86400)
+    
+    client_id = f"{ip}:manual"
+    
+    if action == "blacklist":
+        block_client(client_id, reason, duration_seconds)
+        create_alert(ip, "manual", f"IP manually blacklisted: {reason}", "MEDIUM")
+        return jsonify({
+            "status": "success",
+            "message": f"IP {ip} added to blacklist",
+            "action": action
+        })
+    elif action == "whitelist":
+        # Unblock if currently blocked
+        unblock_client(client_id)
+        return jsonify({
+            "status": "success",
+            "message": f"IP {ip} added to whitelist (removed from blacklist)",
+            "action": action
+        })
+    else:
+        return jsonify({"error": "Invalid action"}), 400
+
+@app.route("/api/ip-management/remove", methods=["POST"])
+def remove_ip_rule():
+    """Remove an IP from management"""
+    data = request.json
+    identifier = data.get("identifier")
+    
+    if not identifier:
+        return jsonify({"error": "Identifier required"}), 400
+    
+    unblock_client(identifier)
+    
+    return jsonify({
+        "status": "success",
+        "message": f"Removed {identifier} from management"
+    })
+
+# ==================== HONEYPOT ====================
 
 @app.route("/api/admin/export")
 def honeypot():
@@ -393,6 +594,8 @@ def honeypot():
     conn.commit()
 
     return jsonify({"error": "unauthorized"}), 403
+
+# ==================== DETECTION ENGINE ====================
 
 def detection_engine():
     while True:
@@ -455,8 +658,23 @@ def detection_engine():
                 if paths and '/api/admin' in paths:
                     create_alert(ip, api_key, "Admin endpoint access attempt", "HIGH")
             
+            # Clean up expired blocks from database
             local_cursor.execute("DELETE FROM blocked_clients WHERE expires_at < ?", (now,))
             local_conn.commit()
+            
+            # Clean up Redis expired blocks
+            if REDIS_AVAILABLE:
+                # Get all blocked clients from database
+                local_cursor.execute("SELECT identifier FROM blocked_clients WHERE expires_at > ?", (now,))
+                valid_blocks = {row[0] for row in local_cursor.fetchall()}
+                
+                # Clean up Redis to match database
+                if redis_client.exists("blocked:clients"):
+                    redis_blocks = redis_client.smembers("blocked:clients")
+                    for blocked_id in redis_blocks:
+                        if blocked_id not in valid_blocks:
+                            redis_client.srem("blocked:clients", blocked_id)
+            
             local_conn.close()
             
             time.sleep(60)
@@ -471,7 +689,12 @@ if __name__ == "__main__":
     print("=" * 60)
     print("🚀 API Abuse Detection Platform Backend")
     print("=" * 60)
-    print("📊 Mock FinTech APIs:")
+    print("🌐 Frontend Pages:")
+    print("   http://localhost:5000/")
+    print("   http://localhost:5000/logs")
+    print("   http://localhost:5000/alerts")
+    print("   http://localhost:5000/ip-management")
+    print("\n📊 Mock FinTech APIs:")
     print("   GET  /api/balance")
     print("   POST /api/transaction")
     print("   GET  /api/history")
@@ -480,7 +703,10 @@ if __name__ == "__main__":
     print("   GET  /api/monitoring/timeline")
     print("   GET  /api/monitoring/alerts")
     print("   GET  /api/monitoring/blocked")
+    print("   GET  /api/monitoring/logs")
     print("   POST /api/monitoring/unblock")
+    print("   POST /api/monitoring/block-ip")
+    print("   POST /api/monitoring/alert/<id>/resolve")
     print("=" * 60)
     
     app.run(debug=True, host='0.0.0.0', port=5000)
