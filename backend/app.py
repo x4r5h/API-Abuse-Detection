@@ -174,18 +174,44 @@ def unblock_client(client_id):
     else:
         blocked_clients.discard(client_id)
 
+
+
+#---
+
 @app.route("/")
 def home():
     return {"status":"backend is working"}
 
 @app.route("/api/balance")
 def balance():
-    return {"balance": 1000}
+    api_key = request.headers.get("X-API-Key")
+    
+    if not api_key or api_key == "none":
+        return jsonify({"error": "API key required"}), 401
+    
+    return jsonify({
+        "balance": 1000.00,
+        "currency": "USD",
+        "account_id": "ACC12345"
+    })
 
 @app.route("/api/transaction", methods=["POST"])
 def transaction():
-    data = request.json
-    return {"status": "transaction processed"}
+    api_key = request.headers.get("X-API-Key")
+    
+    if not api_key or api_key == "none":
+        return jsonify({"error": "API key required"}), 401
+    
+    data = request.json or {}
+    amount = data.get("amount", 0)
+    recipient = data.get("recipient", "unknown")
+    
+    return jsonify({
+        "status": "success",
+        "transaction_id": f"TXN{int(time.time())}",
+        "amount": amount,
+        "recipient": recipient
+    })
 
 @app.route("/api/history")
 def history():
@@ -259,19 +285,19 @@ def detection_engine():
         time.sleep(60)
 
 
-def create_alert(ip, reason, severity):
+def create_alert(ip, api_key, reason, severity):  # ADD api_key parameter
     cursor.execute("""
         SELECT COUNT(*) FROM alerts
         WHERE ip = ? AND reason = ? AND timestamp > ?
-    """, (ip, reason, time.time() - 300))  # last 5 min
+    """, (ip, reason, time.time() - 300))
 
     if cursor.fetchone()[0] == 0:
         cursor.execute(
-            "INSERT INTO alerts (ip, reason, severity, timestamp) VALUES (?, ?, ?, ?)",
-            (ip, reason, severity, time.time())
+            "INSERT INTO alerts (ip, api_key, reason, severity, timestamp) VALUES (?, ?, ?, ?, ?)",
+            (ip, api_key, reason, severity, time.time())  # PASS api_key
         )
         conn.commit()
-
+        print(f"🚨 ALERT: {severity} - {reason} from {ip}")
 
 
 
