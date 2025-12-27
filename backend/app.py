@@ -2,9 +2,22 @@ from flask import Flask, request
 import time
 import sqlite3
 import threading
-
+from flask_cors import CORS
+import redis
 
 app = Flask(__name__)
+CORS(app)
+
+try:
+    redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
+    redis_client.ping()
+    REDIS_AVAILABLE = True
+except:
+    print("⚠️  Redis not available - rate limiting will use in-memory fallback")
+    REDIS_AVAILABLE = False
+    rate_limit_store = {}
+    blocked_clients = set()
+
 
 
 conn = sqlite3.connect("main.db", check_same_thread=False)
@@ -85,7 +98,55 @@ def log_request(response):
 
     return response
 
+def get_client_identifier():
+    ip = request.remote_addr
+    api_key = request.headers.get("X-API-Key", "none")
+    return f"{ip}:{api_key}"
 
+def check_rate_limit(client_id):
+    if REDIS_AVAILABLE:
+        key = f"rate:limit:{client_id}"
+        count = redis_client.incr(key)
+        if count == 1:
+            redis_client.expire(key, 60)  # 60 second window
+        return count <= 100
+    else:
+        # In-memory fallback
+        now = time.time()
+        if client_id not in rate_limit_store:
+            rate_limit_store[client_id] = []
+        
+        rate_limit_store[client_id] = [t for t in rate_limit_store[client_id] if now - t < 60]
+        rate_limit_store[client_id].append(now)
+        return len(rate_limit_store[client_id]) <= 100
+
+def is_blocked(client_id):
+    if REDIS_AVAILABLE:
+        return redis_client.sismember("blocked:clients", client_id)
+    else:
+        return client_id in blocked_clients
+
+def block_client(client_id, reason, duration=3600):
+    expires_at = time.time() + duration
+    cursor.execute(
+        "INSERT OR REPLACE INTO blocked_clients (identifier, reason, blocked_at, expires_at) VALUES (?, ?, ?, ?)",
+        (client_id, reason, time.time(), expires_at)
+    )
+    conn.commit()
+    
+    if REDIS_AVAILABLE:
+        redis_client.sadd("blocked:clients", client_id)
+    else:
+        blocked_clients.add(client_id)
+
+def unblock_client(client_id):
+    cursor.execute("DELETE FROM blocked_clients WHERE identifier = ?", (client_id,))
+    conn.commit()
+    
+    if REDIS_AVAILABLE:
+        redis_client.srem("blocked:clients", client_id)
+    else:
+        blocked_clients.discard(client_id)
 
 @app.route("/")
 def home():
