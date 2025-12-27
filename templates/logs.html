@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log Analysis - Sentinel Protocol</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/typed.js/2.0.12/typed.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #2d2d2d;
+            --text-primary: #f1f2f6;
+            --text-secondary: #a4b0be;
+            --text-muted: #747d8c;
+            --accent-critical: #ff4757;
+            --accent-warning: #ffa502;
+            --accent-success: #2ed573;
+            --accent-info: #3742fa;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .bg-gradient-text {
+            background: linear-gradient(135deg, var(--accent-info), var(--accent-success));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        }
+        
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        
+        .status-online { background-color: var(--accent-success); }
+        .status-warning { background-color: var(--accent-warning); }
+        .status-critical { background-color: var(--accent-critical); }
+        
+        .nav-link {
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .nav-link:hover {
+            color: var(--accent-info);
+        }
+        
+        .nav-link.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent-info), var(--accent-success));
+        }
+        
+        .metric-card {
+            background: linear-gradient(135deg, var(--bg-secondary), rgba(45, 45, 45, 0.8));
+            border: 1px solid rgba(116, 125, 140, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        .glass-effect {
+            background: rgba(26, 26, 26, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .log-row {
+            transition: all 0.2s ease;
+            border-left: 3px solid transparent;
+        }
+        
+        .log-row:hover {
+            background: rgba(55, 66, 250, 0.1);
+            border-left-color: var(--accent-info);
+        }
+        
+        .log-status-200 { border-left-color: var(--accent-success); }
+        .log-status-400 { border-left-color: var(--accent-warning); }
+        .log-status-500 { border-left-color: var(--accent-critical); }
+        
+        .filter-chip {
+            background: rgba(55, 66, 250, 0.2);
+            border: 1px solid var(--accent-info);
+            transition: all 0.2s ease;
+        }
+        
+        .filter-chip:hover {
+            background: rgba(55, 66, 250, 0.3);
+        }
+        
+        .search-highlight {
+            background: rgba(255, 165, 2, 0.3);
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        
+        .method-get { color: var(--accent-success); }
+        .method-post { color: var(--accent-info); }
+        .method-put { color: var(--accent-warning); }
+        .method-delete { color: var(--accent-critical); }
+        
+        .modal-backdrop {
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+        }
+        
+        .log-stream {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .log-stream::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .log-stream::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+            border-radius: 4px;
+        }
+        
+        .log-stream::-webkit-scrollbar-thumb {
+            background: var(--accent-info);
+            border-radius: 4px;
+        }
+        
+        .filter-panel {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+        
+        .filter-panel.expanded {
+            max-height: 500px;
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 glass-effect">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-green-500 rounded-lg flex items-center justify-center">
+                            <span class="text-white font-bold text-sm">SP</span>
+                        </div>
+                        <span class="text-xl font-bold bg-gradient-text">Sentinel Protocol</span>
+                    </div>
+                    <div class="flex items-center space-x-2 ml-8">
+                        <span class="status-indicator status-online"></span>
+                        <span class="text-sm text-gray-400">System Online</span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-8">
+                    <a href="index" class="nav-link text-sm font-medium text-gray-400 hover:text-white">Dashboard</a>
+                    <a href="logs" class="nav-link active text-sm font-medium">Logs</a>
+                    <a href="ip-management" class="nav-link text-sm font-medium text-gray-400 hover:text-white">IP Management</a>
+                    <a href="alerts" class="nav-link text-sm font-medium text-gray-400 hover:text-white">Alerts</a>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <div class="text-right">
+                        <div class="text-sm font-medium" id="current-time"></div>
+                        <div class="text-xs text-gray-400">Live monitoring active</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="pt-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Page Header -->
+        <div class="mb-8">
+            <h1 class="text-3xl font-bold mb-2">Log Analysis</h1>
+            <p class="text-gray-400">Real-time API request monitoring and analysis</p>
+        </div>
+
+        <!-- Search and Filter Bar -->
+        <div class="metric-card rounded-xl p-6 mb-6">
+            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
+                <div class="flex-1 max-w-md">
+                    <div class="relative">
+                        <input type="text" id="search-input" placeholder="Search logs..." 
+                               class="w-full pl-10 pr-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500">
+                        <svg class="absolute left-3 top-2.5 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <button id="filter-toggle" class="flex items-center space-x-2 px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg hover:bg-gray-700 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"></path>
+                        </svg>
+                        <span>Filters</span>
+                        <span id="filter-count" class="text-xs bg-blue-600 text-white px-2 py-1 rounded-full hidden">0</span>
+                    </button>
+                    
+                    <button id="export-btn" class="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                        <span>Export</span>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Filter Panel -->
+            <div id="filter-panel" class="filter-panel mt-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">IP Address</label>
+                        <input type="text" id="filter-ip" placeholder="e.g., 192.168.1.1" 
+                               class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">HTTP Method</label>
+                        <select id="filter-method" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500">
+                            <option value="">All Methods</option>
+                            <option value="GET">GET</option>
+                            <option value="POST">POST</option>
+                            <option value="PUT">PUT</option>
+                            <option value="DELETE">DELETE</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Status Code</label>
+                        <select id="filter-status" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500">
+                            <option value="">All Status</option>
+                            <option value="200">200 - OK</option>
+                            <option value="400">400 - Bad Request</option>
+                            <option value="401">401 - Unauthorized</option>
+                            <option value="403">403 - Forbidden</option>
+                            <option value="429">429 - Rate Limited</option>
+                            <option value="500">500 - Server Error</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Time Range</label>
+                        <select id="filter-time" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500">
+                            <option value="1">Last Hour</option>
+                            <option value="6">Last 6 Hours</option>
+                            <option value="24">Last 24 Hours</option>
+                            <option value="168">Last 7 Days</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between mt-4">
+                    <div class="flex items-center space-x-2">
+                        <span class="text-sm text-gray-400">Active filters:</span>
+                        <div id="active-filters" class="flex flex-wrap gap-2"></div>
+                    </div>
+                    
+                    <button id="clear-filters" class="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">Clear All</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Log Statistics -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+            <div class="metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 mb-1">Total Logs</p>
+                        <p class="text-2xl font-bold font-mono" id="total-logs">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-blue-500 bg-opacity-20 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 mb-1">Error Rate</p>
+                        <p class="text-2xl font-bold font-mono text-red-400" id="error-rate">0%</p>
+                    </div>
+                    <div class="w-10 h-10 bg-red-500 bg-opacity-20 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 mb-1">Avg Response Time</p>
+                        <p class="text-2xl font-bold font-mono" id="avg-response">0ms</p>
+                    </div>
+                    <div class="w-10 h-10 bg-green-500 bg-opacity-20 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 mb-1">Unique IPs</p>
+                        <p class="text-2xl font-bold font-mono" id="unique-ips">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-yellow-500 bg-opacity-20 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Log Stream -->
+        <div class="metric-card rounded-xl p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    Live Log Stream
+                </h3>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <span class="text-sm text-gray-400">Auto-refresh:</span>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="auto-refresh" class="sr-only peer" checked>
+                            <div class="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+                    <button id="clear-logs" class="text-sm text-gray-400 hover:text-white transition-colors">Clear</button>
+                </div>
+            </div>
+            
+            <div id="log-stream" class="log-stream space-y-2">
+                <!-- Logs will be populated by JavaScript -->
+            </div>
+            
+            <div id="loading-indicator" class="text-center py-8 hidden">
+                <div class="inline-flex items-center space-x-2">
+                    <div class="w-4 h-4 bg-blue-500 rounded-full animate-pulse"></div>
+                    <span class="text-gray-400">Loading more logs...</span>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Log Details Modal -->
+    <div id="log-modal" class="fixed inset-0 z-50 hidden">
+        <div class="modal-backdrop absolute inset-0" onclick="closeLogModal()"></div>
+        <div class="relative z-10 flex items-center justify-center min-h-screen p-4">
+            <div class="metric-card rounded-xl p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold">Log Details</h3>
+                    <button onclick="closeLogModal()" class="text-gray-400 hover:text-white">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                
+                <div id="modal-content">
+                    <!-- Modal content will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="mt-16 border-t border-gray-800 py-8">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <p class="text-sm text-gray-400">© 2024 Sentinel Protocol - API Abuse Detection Platform. Securing your APIs with intelligent monitoring.</p>
+        </div>
+    </footer>
+    <script src="{{ url_for('static', filename='js/logs.js') }}"></script>
+<!-- 
+    <script>
+        // Log Analysis functionality
+        class LogAnalyzer {
+            constructor() {
+                this.logs = [];
+                this.filteredLogs = [];
+                this.currentFilters = {};
+                this.autoRefreshInterval = null;
+                this.searchTerm = '';
+                this.init();
+            }
+
+            init() {
+                this.initializeClock();
+                this.setupEventListeners();
+                this.loadMockLogs();
+                this.startAutoRefresh();
+            }
+
+            initializeClock() {
+                const updateClock = () => {
+                    const now = new Date();
+                    const timeString = now.toLocaleTimeString('en-US', {
+                        hour12: false,
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
+                    
+                    const dateString = now.toLocaleDateString('en-US', {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric'
+                    });
+                    
+                    const timeElement = document.getElementById('current-time');
+                    if (timeElement) {
+                        timeElement.textContent = `${dateString} ${timeString}`;
+                    }
+                };
+                
+                updateClock();
+                setInterval(updateClock, 1000);
+            }
+
+            setupEventListeners() {
+                // Search input
+                document.getElementById('search-input').addEventListener('input', (e) => {
+                    this.searchTerm = e.target.value.toLowerCase();
+                    this.filterLogs();
+                });
+
+                // Filter toggle
+                document.getElementById('filter-toggle').addEventListener('click', () => {
+                    const panel = document.getElementById('filter-panel');
+                    panel.classList.toggle('expanded');
+                });
+
+                // Filter inputs
+                ['filter-ip', 'filter-method', 'filter-status', 'filter-time'].forEach(id => {
+                    document.getElementById(id).addEventListener('change', (e) => {
+                        this.updateFilter(id.replace('filter-', ''), e.target.value);
+                    });
+                });
+
+                // Clear filters
+                document.getElementById('clear-filters').addEventListener('click', () => {
+                    this.clearAllFilters();
+                });
+
+                // Export button
+                document.getElementById('export-btn').addEventListener('click', () => {
+                    this.exportLogs();
+                });
+
+                // Clear logs
+                document.getElementById('clear-logs').addEventListener('click', () => {
+                    this.clearLogs();
+                });
+
+                // Auto-refresh toggle
+                document.getElementById('auto-refresh').addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        this.startAutoRefresh();
+                    } else {
+                        this.stopAutoRefresh();
+                    }
+                });
+            }
+
+            loadMockLogs() {
+                // Generate mock log data
+                const methods = ['GET', 'POST', 'PUT', 'DELETE'];
+                const endpoints = ['/api/balance', '/api/transaction', '/api/history', '/api/admin/export'];
+                const ips = ['192.168.1.100', '10.0.0.50', '172.16.0.25', '192.168.1.101', '10.0.0.51'];
+                const userAgents = [
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'curl/7.68.0',
+                    'PostmanRuntime/7.26.8',
+                    'python-requests/2.25.1'
+                ];
+
+                for (let i = 0; i < 100; i++) {
+                    const timestamp = Date.now() - Math.random() * 3600000; // Last hour
+                    const method = methods[Math.floor(Math.random() * methods.length)];
+                    const endpoint = endpoints[Math.floor(Math.random() * endpoints.length)];
+                    const ip = ips[Math.floor(Math.random() * ips.length)];
+                    const statusCode = this.getRandomStatusCode();
+                    const responseTime = Math.random() * 500 + 50; // 50-550ms
+                    const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+
+                    this.logs.push({
+                        id: i + 1,
+                        timestamp,
+                        ip,
+                        method,
+                        path: endpoint,
+                        statusCode,
+                        responseTime: Math.round(responseTime * 100) / 100,
+                        userAgent,
+                        apiKey: `key_${Math.floor(Math.random() * 5) + 1}`
+                    });
+                }
+
+                this.logs.sort((a, b) => b.timestamp - a.timestamp);
+                this.filteredLogs = [...this.logs];
+                this.renderLogs();
+                this.updateStatistics();
+            }
+
+            getRandomStatusCode() {
+                const codes = [200, 200, 200, 200, 201, 400, 401, 403, 429, 500];
+                return codes[Math.floor(Math.random() * codes.length)];
+            }
+
+            updateStatistics() {
+                const totalLogs = this.filteredLogs.length;
+                const errorLogs = this.filteredLogs.filter(log => log.statusCode >= 400).length;
+                const avgResponse = this.filteredLogs.reduce((sum, log) => sum + log.responseTime, 0) / totalLogs;
+                const uniqueIPs = new Set(this.filteredLogs.map(log => log.ip)).size;
+
+                document.getElementById('total-logs').textContent = totalLogs.toLocaleString();
+                document.getElementById('error-rate').textContent = `${Math.round((errorLogs / totalLogs) * 100)}%`;
+                document.getElementById('avg-response').textContent = `${Math.round(avgResponse)}ms`;
+                document.getElementById('unique-ips').textContent = uniqueIPs.toLocaleString();
+            }
+
+            renderLogs() {
+                const container = document.getElementById('log-stream');
+                const html = this.filteredLogs.slice(0, 50).map(log => {
+                    const timeAgo = this.getTimeAgo(log.timestamp);
+                    const statusClass = this.getStatusClass(log.statusCode);
+                    const methodClass = `method-${log.method.toLowerCase()}`;
+                    
+                    return `
+                        <div class="log-row ${statusClass} bg-gray-900 bg-opacity-50 p-4 rounded-lg cursor-pointer" onclick="showLogDetails(${log.id})">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="flex items-center space-x-4">
+                                    <span class="text-xs text-gray-400 font-mono">${timeAgo}</span>
+                                    <span class="text-xs px-2 py-1 bg-gray-700 rounded ${methodClass} font-mono">${log.method}</span>
+                                    <span class="text-xs px-2 py-1 bg-gray-700 rounded font-mono">${log.statusCode}</span>
+                                    <span class="text-xs text-gray-400 font-mono">${log.ip}</span>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <span class="text-xs text-gray-400 font-mono">${log.responseTime}ms</span>
+                                    <button onclick="event.stopPropagation(); blockIP('${log.ip}')" class="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700">Block</button>
+                                    <button onclick="event.stopPropagation(); investigateIP('${log.ip}')" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">Investigate</button>
+                                </div>
+                            </div>
+                            <div class="text-sm text-gray-300 font-mono">${log.path}</div>
+                            ${this.searchTerm ? `<div class="text-xs text-gray-500 mt-1">${this.highlightSearchTerm(log.userAgent)}</div>` : ''}
+                        </div>
+                    `;
+                }).join('');
+
+                container.innerHTML = html;
+                
+                // Animate new logs
+                anime({
+                    targets: '.log-row',
+                    translateX: [-20, 0],
+                    opacity: [0, 1],
+                    duration: 400,
+                    delay: anime.stagger(50),
+                    easing: 'easeOutExpo'
+                });
+            }
+
+            filterLogs() {
+                this.filteredLogs = this.logs.filter(log => {
+                    // Search filter
+                    if (this.searchTerm && !log.ip.toLowerCase().includes(this.searchTerm) && 
+                        !log.path.toLowerCase().includes(this.searchTerm) && 
+                        !log.userAgent.toLowerCase().includes(this.searchTerm)) {
+                        return false;
+                    }
+
+                    // IP filter
+                    if (this.currentFilters.ip && !log.ip.includes(this.currentFilters.ip)) {
+                        return false;
+                    }
+
+                    // Method filter
+                    if (this.currentFilters.method && log.method !== this.currentFilters.method) {
+                        return false;
+                    }
+
+                    // Status filter
+                    if (this.currentFilters.status && log.statusCode !== parseInt(this.currentFilters.status)) {
+                        return false;
+                    }
+
+                    // Time filter
+                    if (this.currentFilters.time) {
+                        const hours = parseInt(this.currentFilters.time);
+                        const cutoff = Date.now() - (hours * 60 * 60 * 1000);
+                        if (log.timestamp < cutoff) {
+                            return false;
+                        }
+                    }
+
+                    return true;
+                });
+
+                this.renderLogs();
+                this.updateStatistics();
+                this.updateActiveFilters();
+            }
+
+            updateFilter(type, value) {
+                if (value) {
+                    this.currentFilters[type] = value;
+                } else {
+                    delete this.currentFilters[type];
+                }
+                this.filterLogs();
+            }
+
+            updateActiveFilters() {
+                const container = document.getElementById('active-filters');
+                const countElement = document.getElementById('filter-count');
+                const filters = Object.keys(this.currentFilters);
+                
+                if (filters.length === 0) {
+                    container.innerHTML = '<span class="text-xs text-gray-500">None</span>';
+                    countElement.classList.add('hidden');
+                    countElement.textContent = '0';
+                } else {
+                    container.innerHTML = filters.map(key => {
+                        const value = this.currentFilters[key];
+                        return `
+                            <span class="filter-chip text-xs px-2 py-1 rounded-full flex items-center space-x-1">
+                                <span>${key}: ${value}</span>
+                                <button onclick="logAnalyzer.removeFilter('${key}')" class="text-xs hover:text-red-400">×</button>
+                            </span>
+                        `;
+                    }).join('');
+                    
+                    countElement.textContent = filters.length;
+                    countElement.classList.remove('hidden');
+                }
+            }
+
+            removeFilter(type) {
+                delete this.currentFilters[type];
+                document.getElementById(`filter-${type}`).value = '';
+                this.filterLogs();
+            }
+
+            clearAllFilters() {
+                this.currentFilters = {};
+                document.getElementById('filter-ip').value = '';
+                document.getElementById('filter-method').value = '';
+                document.getElementById('filter-status').value = '';
+                document.getElementById('filter-time').value = '1';
+                this.filterLogs();
+            }
+
+            getStatusClass(statusCode) {
+                if (statusCode >= 500) return 'log-status-500';
+                if (statusCode >= 400) return 'log-status-400';
+                return 'log-status-200';
+            }
+
+            getTimeAgo(timestamp) {
+                const now = Date.now();
+                const diff = now - timestamp;
+                const minutes = Math.floor(diff / 60000);
+                
+                if (minutes < 1) return 'now';
+                if (minutes < 60) return `${minutes}m ago`;
+                
+                const hours = Math.floor(minutes / 60);
+                if (hours < 24) return `${hours}h ago`;
+                
+                const days = Math.floor(hours / 24);
+                return `${days}d ago`;
+            }
+
+            highlightSearchTerm(text) {
+                if (!this.searchTerm) return text;
+                const regex = new RegExp(`(${this.searchTerm})`, 'gi');
+                return text.replace(regex, '<span class="search-highlight">$1</span>');
+            }
+
+            exportLogs() {
+                const csvContent = this.generateCSV();
+                const blob = new Blob([csvContent], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `logs_${new Date().toISOString()}.csv`;
+                a.click();
+                window.URL.revokeObjectURL(url);
+            }
+
+            generateCSV() {
+                const headers = ['Timestamp', 'IP', 'Method', 'Path', 'Status', 'Response Time', 'User Agent'];
+                const rows = this.filteredLogs.map(log => [
+                    new Date(log.timestamp).toISOString(),
+                    log.ip,
+                    log.method,
+                    log.path,
+                    log.statusCode,
+                    log.responseTime,
+                    log.userAgent
+                ]);
+                
+                return [headers, ...rows].map(row => row.join(',')).join('\n');
+            }
+
+            startAutoRefresh() {
+                this.autoRefreshInterval = setInterval(() => {
+                    this.addNewLog();
+                }, 5000); // Add new log every 5 seconds
+            }
+
+            stopAutoRefresh() {
+                if (this.autoRefreshInterval) {
+                    clearInterval(this.autoRefreshInterval);
+                    this.autoRefreshInterval = null;
+                }
+            }
+
+            addNewLog() {
+                // Simulate new log entry
+                const methods = ['GET', 'POST', 'PUT', 'DELETE'];
+                const endpoints = ['/api/balance', '/api/transaction', '/api/history', '/api/admin/export'];
+                const ips = ['192.168.1.100', '10.0.0.50', '172.16.0.25'];
+                
+                const newLog = {
+                    id: this.logs.length + 1,
+                    timestamp: Date.now(),
+                    ip: ips[Math.floor(Math.random() * ips.length)],
+                    method: methods[Math.floor(Math.random() * methods.length)],
+                    path: endpoints[Math.floor(Math.random() * endpoints.length)],
+                    statusCode: this.getRandomStatusCode(),
+                    responseTime: Math.round((Math.random() * 500 + 50) * 100) / 100,
+                    userAgent: 'Real-time log entry',
+                    apiKey: `key_${Math.floor(Math.random() * 5) + 1}`
+                };
+
+                this.logs.unshift(newLog);
+                this.filterLogs();
+            }
+        }
+
+        // Global functions
+        function showLogDetails(logId) {
+            const log = logAnalyzer.logs.find(l => l.id === logId);
+            if (!log) return;
+
+            const modal = document.getElementById('log-modal');
+            const content = document.getElementById('modal-content');
+            
+            content.innerHTML = `
+                <div class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Timestamp</label>
+                            <p class="text-sm text-gray-100">${new Date(log.timestamp).toLocaleString()}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">IP Address</label>
+                            <p class="text-sm text-gray-100 font-mono">${log.ip}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Method</label>
+                            <p class="text-sm text-gray-100 font-mono">${log.method}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Status Code</label>
+                            <p class="text-sm text-gray-100 font-mono">${log.statusCode}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">Response Time</label>
+                            <p class="text-sm text-gray-100 font-mono">${log.responseTime}ms</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-400 mb-1">API Key</label>
+                            <p class="text-sm text-gray-100 font-mono">${log.apiKey}</p>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Path</label>
+                        <p class="text-sm text-gray-100 font-mono bg-gray-900 p-2 rounded">${log.path}</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">User Agent</label>
+                        <p class="text-sm text-gray-100 font-mono bg-gray-900 p-2 rounded">${log.userAgent}</p>
+                    </div>
+                    <div class="flex space-x-2 pt-4">
+                        <button onclick="blockIP('${log.ip}')" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Block IP</button>
+                        <button onclick="investigateIP('${log.ip}')" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Investigate</button>
+                        <button onclick="closeLogModal()" class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">Close</button>
+                    </div>
+                </div>
+            `;
+            
+            modal.classList.remove('hidden');
+            
+            // Animate modal
+            anime({
+                targets: modal.querySelector('.metric-card'),
+                scale: [0.9, 1],
+                opacity: [0, 1],
+                duration: 300,
+                easing: 'easeOutExpo'
+            });
+        }
+
+        function closeLogModal() {
+            const modal = document.getElementById('log-modal');
+            modal.classList.add('hidden');
+        }
+
+        function blockIP(ip) {
+            if (confirm(`Are you sure you want to block IP ${ip}?`)) {
+                console.log(`Blocking IP: ${ip}`);
+                showNotification(`IP ${ip} has been blocked`, 'success');
+            }
+        }
+
+        function investigateIP(ip) {
+            window.location.href = `ip-management.html?ip=${ip}`;
+        }
+
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `fixed top-20 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm ${
+                type === 'success' ? 'bg-green-600' : 
+                type === 'error' ? 'bg-red-600' : 
+                'bg-blue-600'
+            } text-white`;
+            notification.textContent = message;
+            
+            document.body.appendChild(notification);
+            
+            anime({
+                targets: notification,
+                translateX: [300, 0],
+                opacity: [0, 1],
+                duration: 300,
+                easing: 'easeOutExpo'
+            });
+            
+            setTimeout(() => {
+                anime({
+                    targets: notification,
+                    translateX: [0, 300],
+                    opacity: [1, 0],
+                    duration: 300,
+                    easing: 'easeInExpo',
+                    complete: () => {
+                        document.body.removeChild(notification);
+                    }
+                });
+            }, 3000);
+        }
+
+        // Initialize log analyzer
+        let logAnalyzer;
+        document.addEventListener('DOMContentLoaded', function() {
+            logAnalyzer = new LogAnalyzer();
+        });
+    </script> -->
+</body>
+</html>

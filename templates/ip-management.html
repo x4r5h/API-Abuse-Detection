@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IP Management - Sentinel Protocol</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #2d2d2d;
+            --text-primary: #f1f2f6;
+            --text-secondary: #a4b0be;
+            --text-muted: #747d8c;
+            --accent-critical: #ff4757;
+            --accent-warning: #ffa502;
+            --accent-success: #2ed573;
+            --accent-info: #3742fa;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .bg-gradient-text {
+            background: linear-gradient(135deg, var(--accent-info), var(--accent-success));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        }
+        
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        
+        .status-online { background-color: var(--accent-success); }
+        .status-warning { background-color: var(--accent-warning); }
+        .status-critical { background-color: var(--accent-critical); }
+        
+        .nav-link {
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .nav-link:hover {
+            color: var(--accent-info);
+        }
+        
+        .nav-link.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent-info), var(--accent-success));
+        }
+        
+        .metric-card {
+            background: linear-gradient(135deg, var(--bg-secondary), rgba(45, 45, 45, 0.8));
+            border: 1px solid rgba(116, 125, 140, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        .glass-effect {
+            background: rgba(26, 26, 26, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .ip-row {
+            transition: all 0.2s ease;
+            border-left: 3px solid transparent;
+        }
+        
+        .ip-row:hover {
+            background: rgba(55, 66, 250, 0.1);
+            border-left-color: var(--accent-info);
+        }
+        
+        .ip-whitelisted { border-left-color: var(--accent-success); }
+        .ip-blacklisted { border-left-color: var(--accent-critical); }
+        .ip-monitored { border-left-color: var(--accent-warning); }
+        
+        .tab-button {
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .tab-button.active {
+            color: var(--accent-info);
+        }
+        
+        .tab-button.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--accent-info);
+        }
+        
+        .world-map {
+            height: 400px;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .ip-input {
+            background: var(--bg-secondary);
+            border: 1px solid rgba(116, 125, 140, 0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .ip-input:focus {
+            border-color: var(--accent-info);
+            box-shadow: 0 0 0 3px rgba(55, 66, 250, 0.1);
+        }
+        
+        .bulk-upload {
+            border: 2px dashed rgba(116, 125, 140, 0.3);
+            transition: all 0.3s ease;
+        }
+        
+        .bulk-upload:hover {
+            border-color: var(--accent-info);
+            background: rgba(55, 66, 250, 0.05);
+        }
+        
+        .rule-card {
+            background: linear-gradient(135deg, rgba(55, 66, 250, 0.1), rgba(46, 213, 115, 0.05));
+            border: 1px solid rgba(55, 66, 250, 0.2);
+        }
+        
+        .geolocation-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            position: absolute;
+            animation: pulse-dot 2s infinite;
+        }
+        
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.2); }
+        }
+        
+        .ip-details-panel {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+        
+        .ip-details-panel.expanded {
+            max-height: 500px;
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 glass-effect">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-green-500 rounded-lg flex items-center justify-center">
+                            <span class="text-white font-bold text-sm">SP</span>
+                        </div>
+                        <span class="text-xl font-bold bg-gradient-text">Sentinel Protocol</span>
+                    </div>
+                    <div class="flex items-center space-x-2 ml-8">
+                        <span class="status-indicator status-online"></span>
+                        <span class="text-sm text-gray-400">System Online</span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-8">
+                    <a href="index" class="nav-link text-sm font-medium text-gray-400 hover:text-white">Dashboard</a>
+                    <a href="logs" class="nav-link text-sm font-medium text-gray-400 hover:text-white">Logs</a>
+                    <a href="ip-management" class="nav-link active text-sm font-medium">IP Management</a>
+                    <a href="alerts" class="nav-link text-sm font-medium text-gray-400 hover:text-white">Alerts</a>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <div class="text-right">
+                        <div class="text-sm font-medium" id="current-time"></div>
+                        <div class="text-xs text-gray-400">IP Management Active</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="pt-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Page Header -->
+        <div class="mb-8">
+            <h1 class="text-3xl font-bold mb-2">IP Management</h1>
+            <p class="text-gray-400">Control access with whitelist, blacklist, and monitoring rules</p>
+        </div>
+
+        <!-- IP Statistics -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 mb-1">Whitelisted IPs</p>
+                        <p class="text-2xl font-bold font-mono text-green-400" id="whitelisted-count">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-green-500 bg-opacity-20 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 mb-1">Blacklisted IPs</p>
+                        <p class="text-2xl font-bold font-mono text-red-400" id="blacklisted-count">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-red-500 bg-opacity-20 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 mb-1">Monitored IPs</p>
+                        <p class="text-2xl font-bold font-mono text-yellow-400" id="monitored-count">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-yellow-500 bg-opacity-20 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 mb-1">Auto Rules</p>
+                        <p class="text-2xl font-bold font-mono text-blue-400" id="rules-count">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-blue-500 bg-opacity-20 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="mb-6">
+            <div class="flex space-x-8 border-b border-gray-700">
+                <button class="tab-button active pb-4 px-2 text-sm font-medium" data-tab="manage">Manage IPs</button>
+                <button class="tab-button pb-4 px-2 text-sm font-medium text-gray-400" data-tab="geolocation">Geolocation</button>
+                <button class="tab-button pb-4 px-2 text-sm font-medium text-gray-400" data-tab="rules">Auto Rules</button>
+                <button class="tab-button pb-4 px-2 text-sm font-medium text-gray-400" data-tab="bulk">Bulk Operations</button>
+            </div>
+        </div>
+
+        <!-- Manage IPs Tab -->
+        <div id="manage-tab" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <!-- Add IP Form -->
+                <div class="metric-card rounded-xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Add IP Address</h3>
+                    <form id="add-ip-form" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">IP Address or Range</label>
+                            <input type="text" id="ip-input" placeholder="e.g., 192.168.1.1 or 192.168.1.0/24" 
+                                   class="ip-input w-full px-3 py-2 rounded-lg text-white placeholder-gray-400 focus:outline-none">
+                            <p class="text-xs text-gray-400 mt-1">Supports single IPs or CIDR notation</p>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Action</label>
+                            <select id="ip-action" class="ip-input w-full px-3 py-2 rounded-lg text-white focus:outline-none">
+                                <option value="whitelist">Whitelist</option>
+                                <option value="blacklist">Blacklist</option>
+                                <option value="monitor">Monitor</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Reason (Optional)</label>
+                            <input type="text" id="ip-reason" placeholder="e.g., Trusted partner, Suspicious activity" 
+                                   class="ip-input w-full px-3 py-2 rounded-lg text-white placeholder-gray-400 focus:outline-none">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Duration (Optional)</label>
+                            <select id="ip-duration" class="ip-input w-full px-3 py-2 rounded-lg text-white focus:outline-none">
+                                <option value="permanent">Permanent</option>
+                                <option value="1h">1 Hour</option>
+                                <option value="24h">24 Hours</option>
+                                <option value="7d">7 Days</option>
+                                <option value="30d">30 Days</option>
+                            </select>
+                        </div>
+                        
+                        <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                            Add IP Rule
+                        </button>
+                    </form>
+                </div>
+
+                <!-- IP List -->
+                <div class="lg:col-span-2">
+                    <div class="metric-card rounded-xl p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-semibold">IP Addresses</h3>
+                            <div class="flex items-center space-x-4">
+                                <div class="relative">
+                                    <input type="text" id="ip-search" placeholder="Search IPs..." 
+                                           class="ip-input w-64 px-3 py-2 rounded-lg text-white placeholder-gray-400 focus:outline-none">
+                                    <svg class="absolute right-3 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                    </svg>
+                                </div>
+                                <select id="ip-filter" class="ip-input px-3 py-2 rounded-lg text-white focus:outline-none">
+                                    <option value="all">All IPs</option>
+                                    <option value="whitelist">Whitelisted</option>
+                                    <option value="blacklist">Blacklisted</option>
+                                    <option value="monitor">Monitored</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div id="ip-list" class="space-y-2 max-h-96 overflow-y-auto">
+                            <!-- IP list will be populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Geolocation Tab -->
+        <div id="geolocation-tab" class="tab-content hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- World Map -->
+                <div class="metric-card rounded-xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">IP Geolocation Map</h3>
+                    <div id="world-map" class="world-map">
+                        <!-- Map will be rendered here -->
+                    </div>
+                    <div class="mt-4 flex items-center justify-between text-sm text-gray-400">
+                        <span>Click on dots to view IP details</span>
+                        <div class="flex items-center space-x-4">
+                            <div class="flex items-center space-x-1">
+                                <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                                <span>Whitelisted</span>
+                            </div>
+                            <div class="flex items-center space-x-1">
+                                <div class="w-3 h-3 bg-red-500 rounded-full"></div>
+                                <span>Blacklisted</span>
+                            </div>
+                            <div class="flex items-center space-x-1">
+                                <div class="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                                <span>Monitored</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- IP Details Panel -->
+                <div class="metric-card rounded-xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">IP Details</h3>
+                    <div id="ip-details">
+                        <div class="text-center text-gray-400 py-8">
+                            <svg class="w-12 h-12 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <p>Click on an IP or map dot to view details</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Auto Rules Tab -->
+        <div id="rules-tab" class="tab-content hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- Add Rule Form -->
+                <div class="metric-card rounded-xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Create Auto Rule</h3>
+                    <form id="add-rule-form" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Rule Name</label>
+                            <input type="text" id="rule-name" placeholder="e.g., Block Failed Auth" 
+                                   class="ip-input w-full px-3 py-2 rounded-lg text-white placeholder-gray-400 focus:outline-none">
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Trigger Condition</label>
+                            <select id="rule-condition" class="ip-input w-full px-3 py-2 rounded-lg text-white focus:outline-none">
+                                <option value="failed_auth">Failed Authentication (>5 in 10min)</option>
+                                <option value="rate_limit">Rate Limit (>100 req/min)</option>
+                                <option value="suspicious_path">Suspicious Path Access</option>
+                                <option value="no_balance_check">Transaction without Balance Check</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Action</label>
+                            <select id="rule-action" class="ip-input w-full px-3 py-2 rounded-lg text-white focus:outline-none">
+                                <option value="block">Block IP</option>
+                                <option value="monitor">Monitor IP</option>
+                                <option value="alert">Send Alert</option>
+                            </select>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Duration</label>
+                            <select id="rule-duration" class="ip-input w-full px-3 py-2 rounded-lg text-white focus:outline-none">
+                                <option value="1h">1 Hour</option>
+                                <option value="24h">24 Hours</option>
+                                <option value="7d">7 Days</option>
+                                <option value="permanent">Permanent</option>
+                            </select>
+                        </div>
+                        
+                        <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                            Create Rule
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Active Rules -->
+                <div class="metric-card rounded-xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Active Rules</h3>
+                    <div id="rules-list" class="space-y-3">
+                        <!-- Rules will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bulk Operations Tab -->
+        <div id="bulk-tab" class="tab-content hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- CSV Upload -->
+                <div class="metric-card rounded-xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Bulk Import (CSV)</h3>
+                    <div class="bulk-upload rounded-lg p-8 text-center mb-4">
+                        <svg class="w-12 h-12 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                        </svg>
+                        <p class="text-gray-400 mb-2">Drop CSV file here or click to browse</p>
+                        <p class="text-sm text-gray-500">Format: IP,Action,Reason,Duration</p>
+                        <input type="file" id="csv-upload" accept=".csv" class="hidden">
+                        <button onclick="document.getElementById('csv-upload').click()" class="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                            Choose File
+                        </button>
+                    </div>
+                    
+                    <div class="space-y-2">
+                        <button class="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors">
+                            Download Template
+                        </button>
+                        <button class="w-full bg-gray-600 text-white py-2 rounded-lg hover:bg-gray-700 transition-colors">
+                            Export Current IPs
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Bulk Actions -->
+                <div class="metric-card rounded-xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Bulk Actions</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Select IPs by Criteria</label>
+                            <div class="space-y-2">
+                                <label class="flex items-center space-x-2">
+                                    <input type="checkbox" class="text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500">
+                                    <span class="text-sm">All IPs from last 24 hours</span>
+                                </label>
+                                <label class="flex items-center space-x-2">
+                                    <input type="checkbox" class="text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500">
+                                    <span class="text-sm">IPs with failed requests (>10)</span>
+                                </label>
+                                <label class="flex items-center space-x-2">
+                                    <input type="checkbox" class="text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500">
+                                    <span class="text-sm">IPs exceeding rate limits</span>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Action</label>
+                            <select class="ip-input w-full px-3 py-2 rounded-lg text-white focus:outline-none">
+                                <option value="">Select Action</option>
+                                <option value="whitelist">Add to Whitelist</option>
+                                <option value="blacklist">Add to Blacklist</option>
+                                <option value="monitor">Add to Monitor</option>
+                                <option value="remove">Remove from Lists</option>
+                            </select>
+                        </div>
+                        
+                        <button class="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors">
+                            Apply Bulk Action
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="mt-16 border-t border-gray-800 py-8">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <p class="text-sm text-gray-400">© 2024 Sentinel Protocol - API Abuse Detection Platform. Securing your APIs with intelligent monitoring.</p>
+        </div>
+    </footer>
+<!-- 
+    <script>
+        // IP Management functionality
+        class IPManager {
+            constructor() {
+                this.ips = [];
+                this.rules = [];
+                this.currentTab = 'manage';
+                this.init();
+            }
+
+            init() {
+                this.initializeClock();
+                this.setupEventListeners();
+                this.loadMockData();
+                this.initializeMap();
+                this.updateStatistics();
+            }
+
+            initializeClock() {
+                const updateClock = () => {
+                    const now = new Date();
+                    const timeString = now.toLocaleTimeString('en-US', {
+                        hour12: false,
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
+                    
+                    const dateString = now.toLocaleDateString('en-US', {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric'
+                    });
+                    
+                    const timeElement = document.getElementById('current-time');
+                    if (timeElement) {
+                        timeElement.textContent = `${dateString} ${timeString}`;
+                    }
+                };
+                
+                updateClock();
+                setInterval(updateClock, 1000);
+            }
+
+            setupEventListeners() {
+                // Tab switching
+                document.querySelectorAll('.tab-button').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        this.switchTab(e.target.dataset.tab);
+                    });
+                });
+
+                // Add IP form
+                document.getElementById('add-ip-form').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.addIP();
+                });
+
+                // Add rule form
+                document.getElementById('add-rule-form').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.addRule();
+                });
+
+                // Search and filter
+                document.getElementById('ip-search').addEventListener('input', (e) => {
+                    this.filterIPs(e.target.value);
+                });
+
+                document.getElementById('ip-filter').addEventListener('change', (e) => {
+                    this.filterIPs(null, e.target.value);
+                });
+
+                // CSV upload
+                document.getElementById('csv-upload').addEventListener('change', (e) => {
+                    this.handleCSVUpload(e.target.files[0]);
+                });
+            }
+
+            loadMockData() {
+                // Mock IP data
+                this.ips = [
+                    {
+                        id: 1,
+                        ip: '192.168.1.100',
+                        action: 'whitelist',
+                        reason: 'Trusted partner',
+                        duration: 'permanent',
+                        addedAt: Date.now() - 86400000,
+                        location: { country: 'United States', city: 'New York', lat: 40.7128, lng: -74.0060 }
+                    },
+                    {
+                        id: 2,
+                        ip: '10.0.0.50',
+                        action: 'blacklist',
+                        reason: 'Multiple failed auth attempts',
+                        duration: '24h',
+                        addedAt: Date.now() - 3600000,
+                        location: { country: 'Russia', city: 'Moscow', lat: 55.7558, lng: 37.6176 }
+                    },
+                    {
+                        id: 3,
+                        ip: '172.16.0.25',
+                        action: 'monitor',
+                        reason: 'Suspicious activity detected',
+                        duration: '7d',
+                        addedAt: Date.now() - 7200000,
+                        location: { country: 'China', city: 'Beijing', lat: 39.9042, lng: 116.4074 }
+                    },
+                    {
+                        id: 4,
+                        ip: '192.168.1.101',
+                        action: 'whitelist',
+                        reason: 'Internal network',
+                        duration: 'permanent',
+                        addedAt: Date.now() - 172800000,
+                        location: { country: 'United States', city: 'San Francisco', lat: 37.7749, lng: -122.4194 }
+                    }
+                ];
+
+                // Mock rules
+                this.rules = [
+                    {
+                        id: 1,
+                        name: 'Block Failed Authentication',
+                        condition: 'failed_auth',
+                        action: 'block',
+                        duration: '24h',
+                        enabled: true
+                    },
+                    {
+                        id: 2,
+                        name: 'Monitor High Rate Requests',
+                        condition: 'rate_limit',
+                        action: 'monitor',
+                        duration: '1h',
+                        enabled: true
+                    }
+                ];
+
+                this.renderIPList();
+                this.renderRulesList();
+            }
+
+            switchTab(tabName) {
+                // Update tab buttons
+                document.querySelectorAll('.tab-button').forEach(button => {
+                    button.classList.remove('active');
+                    button.classList.add('text-gray-400');
+                });
+                
+                document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+                document.querySelector(`[data-tab="${tabName}"]`).classList.remove('text-gray-400');
+
+                // Update tab content
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.add('hidden');
+                });
+                
+                document.getElementById(`${tabName}-tab`).classList.remove('hidden');
+                
+                this.currentTab = tabName;
+
+                // Initialize map when geolocation tab is shown
+                if (tabName === 'geolocation') {
+                    setTimeout(() => this.renderMap(), 100);
+                }
+            }
+
+            addIP() {
+                const ip = document.getElementById('ip-input').value.trim();
+                const action = document.getElementById('ip-action').value;
+                const reason = document.getElementById('ip-reason').value.trim();
+                const duration = document.getElementById('ip-duration').value;
+
+                if (!ip) {
+                    this.showNotification('Please enter an IP address', 'error');
+                    return;
+                }
+
+                // Validate IP or CIDR
+                if (!this.isValidIP(ip) && !this.isValidCIDR(ip)) {
+                    this.showNotification('Invalid IP address or CIDR notation', 'error');
+                    return;
+                }
+
+                const newIP = {
+                    id: this.ips.length + 1,
+                    ip,
+                    action,
+                    reason: reason || 'Manual entry',
+                    duration,
+                    addedAt: Date.now(),
+                    location: this.getMockLocation(ip)
+                };
+
+                this.ips.push(newIP);
+                this.renderIPList();
+                this.updateStatistics();
+                
+                // Clear form
+                document.getElementById('add-ip-form').reset();
+                
+                this.showNotification(`IP ${ip} added to ${action}`, 'success');
+            }
+
+            isValidIP(ip) {
+                const ipv4Regex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+                return ipv4Regex.test(ip);
+            }
+
+            isValidCIDR(cidr) {
+                const cidrRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\/(?:[0-9]|[1-2][0-9]|3[0-2])$/;
+                return cidrRegex.test(cidr);
+            }
+
+            getMockLocation(ip) {
+                // Mock geolocation data
+                const locations = [
+                    { country: 'United States', city: 'New York', lat: 40.7128, lng: -74.0060 },
+                    { country: 'Russia', city: 'Moscow', lat: 55.7558, lng: 37.6176 },
+                    { country: 'China', city: 'Beijing', lat: 39.9042, lng: 116.4074 },
+                    { country: 'Germany', city: 'Berlin', lat: 52.5200, lng: 13.4050 },
+                    { country: 'Japan', city: 'Tokyo', lat: 35.6762, lng: 139.6503 },
+                    { country: 'Brazil', city: 'São Paulo', lat: -23.5505, lng: -46.6333 },
+                    { country: 'Australia', city: 'Sydney', lat: -33.8688, lng: 151.2093 },
+                    { country: 'India', city: 'Mumbai', lat: 19.0760, lng: 72.8777 }
+                ];
+                
+                return locations[Math.floor(Math.random() * locations.length)];
+            }
+
+            renderIPList() {
+                const container = document.getElementById('ip-list');
+                const html = this.ips.map(ip => {
+                    const timeAgo = this.getTimeAgo(ip.addedAt);
+                    const statusClass = `ip-${ip.action}`;
+                    const statusColor = this.getStatusColor(ip.action);
+                    
+                    return `
+                        <div class="ip-row ${statusClass} bg-gray-900 bg-opacity-50 p-4 rounded-lg">
+                            <div class="flex items-center justify-between">
+                                <div class="flex-1">
+                                    <div class="flex items-center space-x-3 mb-2">
+                                        <span class="text-sm font-mono font-medium text-gray-100">${ip.ip}</span>
+                                        <span class="text-xs px-2 py-1 rounded ${statusColor}">${ip.action.toUpperCase()}</span>
+                                        <span class="text-xs text-gray-400">${timeAgo}</span>
+                                    </div>
+                                    <p class="text-sm text-gray-400 mb-1">${ip.reason}</p>
+                                    <p class="text-xs text-gray-500">${ip.location.country}, ${ip.location.city}</p>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <button onclick="ipManager.viewIPDetails(${ip.id})" class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">View</button>
+                                    <button onclick="ipManager.removeIP(${ip.id})" class="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700">Remove</button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                container.innerHTML = html;
+            }
+
+            addRule() {
+                const name = document.getElementById('rule-name').value.trim();
+                const condition = document.getElementById('rule-condition').value;
+                const action = document.getElementById('rule-action').value;
+                const duration = document.getElementById('rule-duration').value;
+
+                if (!name) {
+                    this.showNotification('Please enter a rule name', 'error');
+                    return;
+                }
+
+                const newRule = {
+                    id: this.rules.length + 1,
+                    name,
+                    condition,
+                    action,
+                    duration,
+                    enabled: true
+                };
+
+                this.rules.push(newRule);
+                this.renderRulesList();
+                
+                // Clear form
+                document.getElementById('add-rule-form').reset();
+                
+                this.showNotification(`Rule "${name}" created`, 'success');
+            }
+
+            renderRulesList() {
+                const container = document.getElementById('rules-list');
+                const html = this.rules.map(rule => `
+                    <div class="rule-card p-4 rounded-lg">
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="font-medium text-gray-100">${rule.name}</h4>
+                            <div class="flex items-center space-x-2">
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" ${rule.enabled ? 'checked' : ''} 
+                                           onchange="ipManager.toggleRule(${rule.id})" 
+                                           class="sr-only peer">
+                                    <div class="w-9 h-5 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                                </label>
+                                <button onclick="ipManager.removeRule(${rule.id})" class="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700">Remove</button>
+                            </div>
+                        </div>
+                        <p class="text-sm text-gray-400">Condition: ${this.getConditionLabel(rule.condition)}</p>
+                        <p class="text-sm text-gray-400">Action: ${rule.action} for ${rule.duration}</p>
+                    </div>
+                `).join('');
+
+                container.innerHTML = html;
+            }
+
+            getConditionLabel(condition) {
+                const labels = {
+                    'failed_auth': 'Failed Authentication (>5 in 10min)',
+                    'rate_limit': 'Rate Limit (>100 req/min)',
+                    'suspicious_path': 'Suspicious Path Access',
+                    'no_balance_check': 'Transaction without Balance Check'
+                };
+                return labels[condition] || condition;
+            }
+
+            initializeMap() {
+                // Initialize a simple world map using canvas
+                const mapContainer = document.getElementById('world-map');
+                const canvas = document.createElement('canvas');
+                canvas.width = mapContainer.offsetWidth;
+                canvas.height = mapContainer.offsetHeight;
+                canvas.style.background = 'linear-gradient(135deg, #2d2d2d, #1a1a1a)';
+                mapContainer.appendChild(canvas);
+
+                const ctx = canvas.getContext('2d');
+                
+                // Draw simple world map outline
+                ctx.strokeStyle = '#374151';
+                ctx.lineWidth = 1;
+                
+                // Add IP dots
+                this.ips.forEach(ip => {
+                    const x = (ip.location.lng + 180) * (canvas.width / 360);
+                    const y = (90 - ip.location.lat) * (canvas.height / 180);
+                    
+                    ctx.fillStyle = this.getStatusColor(ip.action).replace('bg-', '').replace('-500', '');
+                    ctx.beginPath();
+                    ctx.arc(x, y, 4, 0, 2 * Math.PI);
+                    ctx.fill();
+                    
+                    // Add click handler
+                    canvas.addEventListener('click', (e) => {
+                        const rect = canvas.getBoundingClientRect();
+                        const clickX = e.clientX - rect.left;
+                        const clickY = e.clientY - rect.top;
+                        
+                        const distance = Math.sqrt(Math.pow(clickX - x, 2) + Math.pow(clickY - y, 2));
+                        if (distance <= 6) {
+                            this.viewIPDetails(ip.id);
+                        }
+                    });
+                });
+            }
+
+            renderMap() {
+                const mapContainer = document.getElementById('world-map');
+                mapContainer.innerHTML = '';
+                this.initializeMap();
+            }
+
+            viewIPDetails(ipId) {
+                const ip = this.ips.find(i => i.id === ipId);
+                if (!ip) return;
+
+                const detailsContainer = document.getElementById('ip-details');
+                detailsContainer.innerHTML = `
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-lg font-semibold text-gray-100">${ip.ip}</h4>
+                            <span class="text-xs px-2 py-1 rounded ${this.getStatusColor(ip.action)}">${ip.action.toUpperCase()}</span>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <label class="block text-gray-400 mb-1">Location</label>
+                                <p class="text-gray-100">${ip.location.city}, ${ip.location.country}</p>
+                            </div>
+                            <div>
+                                <label class="block text-gray-400 mb-1">Added</label>
+                                <p class="text-gray-100">${this.getTimeAgo(ip.addedAt)}</p>
+                            </div>
+                            <div>
+                                <label class="block text-gray-400 mb-1">Reason</label>
+                                <p class="text-gray-100">${ip.reason}</p>
+                            </div>
+                            <div>
+                                <label class="block text-gray-400 mb-1">Duration</label>
+                                <p class="text-gray-100">${ip.duration}</p>
+                            </div>
+                        </div>
+                        
+                        <div class="pt-4 border-t border-gray-700">
+                            <h5 class="text-sm font-medium text-gray-300 mb-2">Recent Activity</h5>
+                            <div class="space-y-2">
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-gray-400">Total Requests</span>
+                                    <span class="text-gray-100">${Math.floor(Math.random() * 1000) + 100}</span>
+                                </div>
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-gray-400">Failed Requests</span>
+                                    <span class="text-red-400">${Math.floor(Math.random() * 50)}</span>
+                                </div>
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-gray-400">Last Seen</span>
+                                    <span class="text-gray-100">${this.getTimeAgo(Date.now() - Math.random() * 3600000)}</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="flex space-x-2 pt-4">
+                            <button onclick="ipManager.editIP(${ip.id})" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Edit</button>
+                            <button onclick="ipManager.removeIP(${ip.id})" class="flex-1 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Remove</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            removeIP(ipId) {
+                if (confirm('Are you sure you want to remove this IP?')) {
+                    this.ips = this.ips.filter(ip => ip.id !== ipId);
+                    this.renderIPList();
+                    this.updateStatistics();
+                    this.showNotification('IP removed successfully', 'success');
+                }
+            }
+
+            removeRule(ruleId) {
+                if (confirm('Are you sure you want to remove this rule?')) {
+                    this.rules = this.rules.filter(rule => rule.id !== ruleId);
+                    this.renderRulesList();
+                    this.updateStatistics();
+                    this.showNotification('Rule removed successfully', 'success');
+                }
+            }
+
+            toggleRule(ruleId) {
+                const rule = this.rules.find(r => r.id === ruleId);
+                if (rule) {
+                    rule.enabled = !rule.enabled;
+                    this.showNotification(`Rule "${rule.name}" ${rule.enabled ? 'enabled' : 'disabled'}`, 'info');
+                }
+            }
+
+            filterIPs(searchTerm = null, actionFilter = null) {
+                // Implementation for filtering IPs based on search and action
+                console.log('Filtering IPs:', searchTerm, actionFilter);
+            }
+
+            handleCSVUpload(file) {
+                if (!file) return;
+                
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const csv = e.target.result;
+                    this.parseCSV(csv);
+                };
+                reader.readAsText(file);
+            }
+
+            parseCSV(csv) {
+                const lines = csv.split('\n');
+                const imported = [];
+                
+                for (let i = 1; i < lines.length; i++) { // Skip header
+                    const line = lines[i].trim();
+                    if (!line) continue;
+                    
+                    const [ip, action, reason, duration] = line.split(',');
+                    if (ip && action) {
+                        imported.push({
+                            id: this.ips.length + imported.length + 1,
+                            ip: ip.trim(),
+                            action: action.trim(),
+                            reason: reason?.trim() || 'Bulk import',
+                            duration: duration?.trim() || 'permanent',
+                            addedAt: Date.now(),
+                            location: this.getMockLocation(ip.trim())
+                        });
+                    }
+                }
+                
+                this.ips.push(...imported);
+                this.renderIPList();
+                this.updateStatistics();
+                this.showNotification(`Imported ${imported.length} IPs`, 'success');
+            }
+
+            updateStatistics() {
+                const whitelisted = this.ips.filter(ip => ip.action === 'whitelist').length;
+                const blacklisted = this.ips.filter(ip => ip.action === 'blacklist').length;
+                const monitored = this.ips.filter(ip => ip.action === 'monitor').length;
+                
+                document.getElementById('whitelisted-count').textContent = whitelisted;
+                document.getElementById('blacklisted-count').textContent = blacklisted;
+                document.getElementById('monitored-count').textContent = monitored;
+                document.getElementById('rules-count').textContent = this.rules.length;
+            }
+
+            getStatusColor(action) {
+                const colors = {
+                    'whitelist': 'bg-green-500 text-white',
+                    'blacklist': 'bg-red-500 text-white',
+                    'monitor': 'bg-yellow-500 text-white'
+                };
+                return colors[action] || 'bg-gray-500 text-white';
+            }
+
+            getTimeAgo(timestamp) {
+                const now = Date.now();
+                const diff = now - timestamp;
+                const minutes = Math.floor(diff / 60000);
+                
+                if (minutes < 1) return 'now';
+                if (minutes < 60) return `${minutes}m ago`;
+                
+                const hours = Math.floor(minutes / 60);
+                if (hours < 24) return `${hours}h ago`;
+                
+                const days = Math.floor(hours / 24);
+                return `${days}d ago`;
+            }
+
+            showNotification(message, type = 'info') {
+                const notification = document.createElement('div');
+                notification.className = `fixed top-20 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm ${
+                    type === 'success' ? 'bg-green-600' : 
+                    type === 'error' ? 'bg-red-600' : 
+                    'bg-blue-600'
+                } text-white`;
+                notification.textContent = message;
+                
+                document.body.appendChild(notification);
+                
+                anime({
+                    targets: notification,
+                    translateX: [300, 0],
+                    opacity: [0, 1],
+                    duration: 300,
+                    easing: 'easeOutExpo'
+                });
+                
+                setTimeout(() => {
+                    anime({
+                        targets: notification,
+                        translateX: [0, 300],
+                        opacity: [1, 0],
+                        duration: 300,
+                        easing: 'easeInExpo',
+                        complete: () => {
+                            document.body.removeChild(notification);
+                        }
+                    });
+                }, 3000);
+            }
+        }
+
+        // Global functions
+        function blockIP(ip) {
+            if (confirm(`Are you sure you want to block IP ${ip}?`)) {
+                console.log(`Blocking IP: ${ip}`);
+                ipManager.showNotification(`IP ${ip} has been blocked`, 'success');
+            }
+        }
+
+        function investigateIP(ip) {
+            window.location.href = `logs.html?ip=${ip}`;
+        }
+
+        // Initialize IP manager
+        let ipManager;
+        document.addEventListener('DOMContentLoaded', function() {
+            ipManager = new IPManager();
+            
+            // Check for IP parameter in URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const ipParam = urlParams.get('ip');
+            if (ipParam) {
+                document.getElementById('ip-input').value = ipParam;
+            }
+        });
+    </script> -->
+    <script src="{{ url_for('static', filename='js/ip-management.js') }}"></script>
+
+</body>
+</html>
