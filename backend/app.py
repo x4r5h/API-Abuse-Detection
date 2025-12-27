@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
 import time
 import sqlite3
 import threading
@@ -67,19 +67,34 @@ cursor.execute("CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timest
 conn.commit()
 
 @app.before_request
+def start_timer():
+    """Start timing the request - MUST RUN FIRST"""
+    request.start_time = time.time()
+
+
+@app.before_request
 def check_blocked():
-    """Block requests from blocked clients"""
+    """Check if client is blocked"""
+    # Make sure start_time is set
+    if not hasattr(request, 'start_time'):
+        request.start_time = time.time()
+    
     client_id = get_client_identifier()
     
     if is_blocked(client_id):
         return jsonify({
             "error": "Access denied",
-            "message": "Your access has been temporarily blocked"
+            "message": "Your access has been temporarily blocked due to suspicious activity"
         }), 403
+
 
 @app.before_request
 def apply_rate_limit():
-    """Check and enforce rate limits"""
+    """Apply rate limiting"""
+    # Make sure start_time is set
+    if not hasattr(request, 'start_time'):
+        request.start_time = time.time()
+    
     client_id = get_client_identifier()
     
     if not check_rate_limit(client_id):
@@ -91,18 +106,18 @@ def apply_rate_limit():
         )
         block_client(client_id, "Rate limit exceeded", duration=300)
         
-        return jsonify({"error": "Too Many Requests"}), 429
-
-@app.before_request
-def start_timer():
-    request.start_time = time.time()
-
+        return jsonify({
+            "error": "Too Many Requests",
+            "message": "Rate limit exceeded. Please try again later."
+        }), 429
 
 @app.after_request
 def log_request(response):
-    response_time = time.time() - request.start_time
+    # Fix: Check if start_time exists before using it
+    response_time = time.time() - getattr(request, 'start_time', time.time())
+    
     api_key = request.headers.get("X-API-Key", "none")
-    user_agent = request.headers.get("User-Agent", "unknown")  # ADD THIS
+    user_agent = request.headers.get("User-Agent", "unknown")
 
     cursor.execute(
         """
@@ -122,6 +137,7 @@ def log_request(response):
         )
     )
     conn.commit()
+
     return response
 
 def get_client_identifier():
@@ -421,4 +437,19 @@ def create_alert(ip, api_key, reason, severity):  # ADD api_key parameter
 threading.Thread(target=detection_engine, daemon=True).start()
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    print("=" * 60)
+    print("🚀 API Abuse Detection Platform Backend")
+    print("=" * 60)
+    print("📊 Mock FinTech APIs:")
+    print("   GET  /api/balance")
+    print("   POST /api/transaction")
+    print("   GET  /api/history")
+    print("\n🔍 Monitoring APIs:")
+    print("   GET  /api/monitoring/stats")
+    print("   GET  /api/monitoring/timeline")
+    print("   GET  /api/monitoring/alerts")
+    print("   GET  /api/monitoring/blocked")
+    print("   POST /api/monitoring/unblock")
+    print("=" * 60)
+    
+    app.run(debug=True, host='0.0.0.0', port=5000)
