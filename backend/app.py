@@ -222,6 +222,106 @@ def history():
         ]
     }
 
+
+@app.route("/api/monitoring/stats")
+def get_stats():
+    now = time.time()
+    
+    cursor.execute("SELECT COUNT(*) FROM logs WHERE timestamp > ?", (now - 3600,))
+    total_requests = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM logs WHERE timestamp > ? AND status_code >= 400", (now - 3600,))
+    failed_requests = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM alerts WHERE resolved = 0")
+    active_alerts = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM blocked_clients WHERE expires_at > ?", (now,))
+    blocked_count = cursor.fetchone()[0]
+    
+    cursor.execute("""
+        SELECT path, COUNT(*) as count
+        FROM logs WHERE timestamp > ?
+        GROUP BY path ORDER BY count DESC LIMIT 5
+    """, (now - 3600,))
+    top_endpoints = [{"path": row[0], "count": row[1]} for row in cursor.fetchall()]
+    
+    return jsonify({
+        "total_requests": total_requests,
+        "failed_requests": failed_requests,
+        "active_alerts": active_alerts,
+        "blocked_clients": blocked_count,
+        "top_endpoints": top_endpoints
+    })
+
+@app.route("/api/monitoring/timeline")
+def get_timeline():
+    now = time.time()
+    cursor.execute("""
+        SELECT CAST(timestamp / 60 AS INTEGER) * 60 as minute, COUNT(*) as count
+        FROM logs WHERE timestamp > ?
+        GROUP BY minute ORDER BY minute
+    """, (now - 3600,))
+    
+    from datetime import datetime
+    timeline = [
+        {"timestamp": row[0], "time": datetime.fromtimestamp(row[0]).strftime("%H:%M"), "requests": row[1]}
+        for row in cursor.fetchall()
+    ]
+    return jsonify(timeline)
+
+@app.route("/api/monitoring/alerts")
+def get_alerts():
+    cursor.execute("""
+        SELECT id, ip, api_key, reason, severity, timestamp, resolved
+        FROM alerts ORDER BY timestamp DESC LIMIT 50
+    """)
+    
+    from datetime import datetime
+    alerts = [
+        {
+            "id": row[0], "ip": row[1], "api_key": row[2],
+            "reason": row[3], "severity": row[4],
+            "timestamp": row[5],
+            "time": datetime.fromtimestamp(row[5]).strftime("%Y-%m-%d %H:%M:%S"),
+            "resolved": bool(row[6])
+        }
+        for row in cursor.fetchall()
+    ]
+    return jsonify(alerts)
+
+@app.route("/api/monitoring/blocked")
+def get_blocked():
+    now = time.time()
+    cursor.execute("""
+        SELECT identifier, reason, blocked_at, expires_at
+        FROM blocked_clients WHERE expires_at > ?
+        ORDER BY blocked_at DESC
+    """, (now,))
+    
+    from datetime import datetime
+    blocked = [
+        {
+            "identifier": row[0], "reason": row[1],
+            "blocked_at": datetime.fromtimestamp(row[2]).strftime("%Y-%m-%d %H:%M:%S"),
+            "expires_at": datetime.fromtimestamp(row[3]).strftime("%Y-%m-%d %H:%M:%S")
+        }
+        for row in cursor.fetchall()
+    ]
+    return jsonify(blocked)
+
+@app.route("/api/monitoring/unblock", methods=["POST"])
+def unblock():
+    data = request.json
+    client_id = data.get("identifier")
+    
+    if not client_id:
+        return jsonify({"error": "identifier required"}), 400
+    
+    unblock_client(client_id)
+    return jsonify({"status": "success", "message": f"Unblocked {client_id}"})
+
+
 @app.route("/api/admin/export")
 def honeypot():
     ip = request.remote_addr
@@ -236,52 +336,69 @@ def honeypot():
 
 
 def detection_engine():
-    local_cursor = conn.cursor()
+    local_conn = sqlite3.connect("main.db")
+    local_cursor = local_conn.cursor()
+    
     while True:
         now = time.time()
-
-        # ---- Rule 1: High request rate ----
+        
         local_cursor.execute("""
-            SELECT ip, COUNT(*) 
+            SELECT ip, api_key, COUNT(*) as count
             FROM logs 
             WHERE timestamp > ?
-            GROUP BY ip
+            GROUP BY ip, api_key
         """, (now - 60,))
-        for ip, count in local_cursor.fetchall():
-            if count > 100:
-                create_alert(ip, "High request rate", "HIGH")
         
-        #failed authentication
+        for ip, api_key, count in local_cursor.fetchall():  # ADD api_key here
+            if count > 100:
+                create_alert(ip, api_key, f"High request rate ({count} req/min)", "HIGH")
+        
         local_cursor.execute("""
-            SELECT ip, COUNT(*) 
+            SELECT ip, api_key, COUNT(*) as count
             FROM logs 
             WHERE timestamp > ?
             AND status_code IN (401, 403)
-            GROUP BY ip
+            GROUP BY ip, api_key
         """, (now - 600,))
-        for ip, count in local_cursor.fetchall():
-            if count > 5:
-                create_alert(ip, "Multiple failed authentication attempts", "HIGH")
         
-        #unusual endpoints
+        for ip, api_key, count in local_cursor.fetchall():
+            if count > 5:
+                create_alert(ip, api_key, f"Multiple failed auth ({count})", "HIGH")
+                block_client(f"{ip}:{api_key}", "Failed auth", duration=1800)
+        
         local_cursor.execute("""
-            SELECT DISTINCT ip 
+            SELECT DISTINCT ip, api_key
             FROM logs 
             WHERE path = '/api/transaction'
-        """)
-        for (ip,) in local_cursor.fetchall():
+            AND timestamp > ?
+        """, (now - 300,))
+        
+        for ip, api_key in local_cursor.fetchall():
             local_cursor.execute("""
                 SELECT COUNT(*) 
                 FROM logs 
-                WHERE ip = ?
+                WHERE ip = ? AND api_key = ?
                 AND path = '/api/balance'
-            """, (ip,))
-
-            balance_count = local_cursor.fetchone()[0]
-
-            if balance_count == 0:
-                create_alert(ip, "Transaction without balance check", "MEDIUM")
-
+                AND timestamp > ?
+            """, (ip, api_key, now - 300))
+            
+            if local_cursor.fetchone()[0] == 0:
+                create_alert(ip, api_key, "Transaction without balance check", "MEDIUM")
+        
+        local_cursor.execute("""
+            SELECT ip, api_key, GROUP_CONCAT(path) as paths
+            FROM logs
+            WHERE timestamp > ?
+            GROUP BY ip, api_key
+        """, (now - 300,))
+        
+        for ip, api_key, paths in local_cursor.fetchall():
+            if paths and '/api/admin' in paths:
+                create_alert(ip, api_key, "Admin endpoint access attempt", "HIGH")
+        
+        local_cursor.execute("DELETE FROM blocked_clients WHERE expires_at < ?", (now,))
+        local_conn.commit()
+        
         time.sleep(60)
 
 
