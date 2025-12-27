@@ -11,16 +11,31 @@ conn = sqlite3.connect("main.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""
+CREATE TABLE IF NOT EXISTS logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip TEXT,
+    path TEXT,
+    method TEXT,
+    status_code INTEGER,
+    response_time REAL,
+    api_key TEXT,
+    timestamp REAL,
+    user_agent TEXT
+)
+""")
+
+cursor.execute("""
 CREATE TABLE IF NOT EXISTS alerts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ip TEXT,
-    api_key TEXT,  # <- YOU WERE MISSING THIS
+    api_key TEXT,
     reason TEXT,
     severity TEXT,
     timestamp REAL,
-    resolved INTEGER DEFAULT 0  # <- AND THIS (to mark alerts as resolved)
+    resolved INTEGER DEFAULT 0
 )
 """)
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS blocked_clients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,6 +46,7 @@ CREATE TABLE IF NOT EXISTS blocked_clients (
 )
 """)
 
+# Create indexes for faster querying
 cursor.execute("CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp)")
 cursor.execute("CREATE INDEX IF NOT EXISTS idx_logs_ip ON logs(ip)")
 cursor.execute("CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)")
