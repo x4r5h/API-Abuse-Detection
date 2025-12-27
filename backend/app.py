@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS alerts (
 
 conn.commit()
 
+#
 @app.before_request
 def start_timer():
     request.start_time = time.time()
@@ -88,7 +89,6 @@ def history():
             {"id": 2, "amount": 450}
         ]
     }
-
 
 @app.route("/api/admin/export")
 def honeypot():
