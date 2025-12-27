@@ -66,7 +66,33 @@ cursor.execute("CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timest
 
 conn.commit()
 
-#
+@app.before_request
+def check_blocked():
+    """Block requests from blocked clients"""
+    client_id = get_client_identifier()
+    
+    if is_blocked(client_id):
+        return jsonify({
+            "error": "Access denied",
+            "message": "Your access has been temporarily blocked"
+        }), 403
+
+@app.before_request
+def apply_rate_limit():
+    """Check and enforce rate limits"""
+    client_id = get_client_identifier()
+    
+    if not check_rate_limit(client_id):
+        create_alert(
+            request.remote_addr,
+            request.headers.get("X-API-Key", "none"),
+            "Rate limit exceeded",
+            "HIGH"
+        )
+        block_client(client_id, "Rate limit exceeded", duration=300)
+        
+        return jsonify({"error": "Too Many Requests"}), 429
+
 @app.before_request
 def start_timer():
     request.start_time = time.time()
@@ -75,14 +101,14 @@ def start_timer():
 @app.after_request
 def log_request(response):
     response_time = time.time() - request.start_time
-
     api_key = request.headers.get("X-API-Key", "none")
+    user_agent = request.headers.get("User-Agent", "unknown")  # ADD THIS
 
     cursor.execute(
         """
         INSERT INTO logs 
-        (ip, path, method, status_code, response_time, api_key, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (ip, path, method, status_code, response_time, api_key, timestamp, user_agent)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             request.remote_addr,
@@ -91,11 +117,11 @@ def log_request(response):
             response.status_code,
             response_time,
             api_key,
-            time.time()
+            time.time(),
+            user_agent
         )
     )
     conn.commit()
-
     return response
 
 def get_client_identifier():
