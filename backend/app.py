@@ -1,6 +1,7 @@
 from flask import Flask, request
 import time
 import sqlite3
+import threading
 
 
 app = Flask(__name__)
@@ -103,6 +104,73 @@ def honeypot():
     return {"error": "unauthorized"}, 403
 
 
+def detection_engine():
+    local_cursor = conn.cursor()
+    while True:
+        now = time.time()
 
-app.run(debug=True)
+        # ---- Rule 1: High request rate ----
+        local_cursor.execute("""
+            SELECT ip, COUNT(*) 
+            FROM logs 
+            WHERE timestamp > ?
+            GROUP BY ip
+        """, (now - 60,))
+        for ip, count in local_cursor.fetchall():
+            if count > 100:
+                create_alert(ip, "High request rate", "HIGH")
+        
+        #failed authentication
+        local_cursor.execute("""
+            SELECT ip, COUNT(*) 
+            FROM logs 
+            WHERE timestamp > ?
+            AND status_code IN (401, 403)
+            GROUP BY ip
+        """, (now - 600,))
+        for ip, count in local_cursor.fetchall():
+            if count > 5:
+                create_alert(ip, "Multiple failed authentication attempts", "HIGH")
+        
+        #unusual endpoints
+        local_cursor.execute("""
+            SELECT DISTINCT ip 
+            FROM logs 
+            WHERE path = '/api/transaction'
+        """)
+        for (ip,) in local_cursor.fetchall():
+            local_cursor.execute("""
+                SELECT COUNT(*) 
+                FROM logs 
+                WHERE ip = ?
+                AND path = '/api/balance'
+            """, (ip,))
 
+            balance_count = local_cursor.fetchone()[0]
+
+            if balance_count == 0:
+                create_alert(ip, "Transaction without balance check", "MEDIUM")
+
+        time.sleep(60)
+
+
+def create_alert(ip, reason, severity):
+    cursor.execute("""
+        SELECT COUNT(*) FROM alerts
+        WHERE ip = ? AND reason = ? AND timestamp > ?
+    """, (ip, reason, time.time() - 300))  # last 5 min
+
+    if cursor.fetchone()[0] == 0:
+        cursor.execute(
+            "INSERT INTO alerts (ip, reason, severity, timestamp) VALUES (?, ?, ?, ?)",
+            (ip, reason, severity, time.time())
+        )
+        conn.commit()
+
+
+
+
+threading.Thread(target=detection_engine, daemon=True).start()
+
+if __name__ == "__main__":
+    app.run(debug=True)
