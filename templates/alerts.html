@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Alerts - Sentinel Protocol</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
+    <script src="https://unpkg.com/splitting@1.0.6/dist/splitting.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/splitting@1.0.6/dist/splitting.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #2d2d2d;
+            --text-primary: #f1f2f6;
+            --text-secondary: #a4b0be;
+            --text-muted: #747d8c;
+            --accent-critical: #ff4757;
+            --accent-warning: #ffa502;
+            --accent-success: #2ed573;
+            --accent-info: #3742fa;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .bg-gradient-text {
+            background: linear-gradient(135deg, var(--accent-info), var(--accent-success));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        }
+        
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        
+        .status-online { background-color: var(--accent-success); }
+        .status-warning { background-color: var(--accent-warning); }
+        .status-critical { background-color: var(--accent-critical); }
+        
+        .nav-link {
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        .nav-link:hover {
+            color: var(--accent-info);
+        }
+        
+        .nav-link.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent-info), var(--accent-success));
+        }
+        
+        .metric-card {
+            background: linear-gradient(135deg, var(--bg-secondary), rgba(45, 45, 45, 0.8));
+            border: 1px solid rgba(116, 125, 140, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        .glass-effect {
+            background: rgba(26, 26, 26, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .alert-card {
+            border-left: 4px solid;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .alert-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+            animation: shimmer 2s infinite;
+        }
+        
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+        
+        .alert-critical {
+            border-left-color: var(--accent-critical);
+            background: linear-gradient(135deg, rgba(255, 71, 87, 0.1), rgba(255, 71, 87, 0.05));
+        }
+        
+        .alert-high {
+            border-left-color: var(--accent-critical);
+            background: linear-gradient(135deg, rgba(255, 71, 87, 0.08), rgba(255, 71, 87, 0.03));
+        }
+        
+        .alert-medium {
+            border-left-color: var(--accent-warning);
+            background: linear-gradient(135deg, rgba(255, 165, 2, 0.1), rgba(255, 165, 2, 0.05));
+        }
+        
+        .alert-low {
+            border-left-color: var(--accent-info);
+            background: linear-gradient(135deg, rgba(55, 66, 250, 0.1), rgba(55, 66, 250, 0.05));
+        }
+        
+        .alert-resolved {
+            border-left-color: var(--accent-success);
+            background: linear-gradient(135deg, rgba(46, 213, 115, 0.1), rgba(46, 213, 115, 0.05));
+            opacity: 0.7;
+        }
+        
+        .alert-card:hover {
+            transform: translateX(4px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+        }
+        
+        .pulse-critical {
+            animation: pulse-critical 2s infinite;
+        }
+        
+        @keyframes pulse-critical {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(255, 71, 87, 0.7); }
+            50% { opacity: 0.8; box-shadow: 0 0 0 10px rgba(255, 71, 87, 0); }
+        }
+        
+        .pulse-warning {
+            animation: pulse-warning 3s infinite;
+        }
+        
+        @keyframes pulse-warning {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .severity-badge {
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.375rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .severity-critical { background-color: var(--accent-critical); color: white; }
+        .severity-high { background-color: #ff3742; color: white; }
+        .severity-medium { background-color: var(--accent-warning); color: white; }
+        .severity-low { background-color: var(--accent-info); color: white; }
+        
+        .timeline-container {
+            position: relative;
+        }
+        
+        .timeline-line {
+            position: absolute;
+            left: 1rem;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: linear-gradient(to bottom, var(--accent-info), var(--accent-success));
+        }
+        
+        .timeline-item {
+            position: relative;
+            padding-left: 3rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .timeline-dot {
+            position: absolute;
+            left: 0.75rem;
+            top: 0.5rem;
+            width: 0.5rem;
+            height: 0.5rem;
+            border-radius: 50%;
+            background: var(--accent-info);
+            border: 2px solid var(--bg-primary);
+        }
+        
+        .filter-chip {
+            background: rgba(55, 66, 250, 0.2);
+            border: 1px solid var(--accent-info);
+            transition: all 0.2s ease;
+        }
+        
+        .filter-chip:hover {
+            background: rgba(55, 66, 250, 0.3);
+        }
+        
+        .action-button {
+            transition: all 0.2s ease;
+        }
+        
+        .action-button:hover {
+            transform: scale(1.05);
+        }
+        
+        .incident-flow {
+            background: linear-gradient(135deg, rgba(55, 66, 250, 0.05), rgba(46, 213, 115, 0.05));
+            border: 1px solid rgba(55, 66, 250, 0.1);
+        }
+        
+        .correlation-line {
+            background: linear-gradient(90deg, var(--accent-info), transparent);
+            height: 1px;
+            margin: 0.5rem 0;
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 glass-effect">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-green-500 rounded-lg flex items-center justify-center">
+                            <span class="text-white font-bold text-sm">SP</span>
+                        </div>
+                        <span class="text-xl font-bold bg-gradient-text">Sentinel Protocol</span>
+                    </div>
+                    <div class="flex items-center space-x-2 ml-8">
+                        <span class="status-indicator status-online"></span>
+                        <span class="text-sm text-gray-400">System Online</span>
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-8">
+                    <a href="index" class="nav-link text-sm font-medium text-gray-400 hover:text-white">Dashboard</a>
+                    <a href="logs" class="nav-link text-sm font-medium text-gray-400 hover:text-white">Logs</a>
+                    <a href="ip-management" class="nav-link text-sm font-medium text-gray-400 hover:text-white">IP Management</a>
+                    <a href="alerts" class="nav-link active text-sm font-medium">Alerts</a>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <div class="text-right">
+                        <div class="text-sm font-medium" id="current-time"></div>
+                        <div class="text-xs text-gray-400">Alert monitoring active</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="pt-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Page Header -->
+        <div class="mb-8">
+            <h1 class="text-3xl font-bold mb-2">Security Alerts</h1>
+            <p class="text-gray-400">Monitor and respond to security incidents in real-time</p>
+        </div>
+
+        <!-- Alert Statistics -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 mb-1">Critical Alerts</p>
+                        <p class="text-2xl font-bold font-mono text-red-400" id="critical-count">0</p>
+                        <p class="text-xs text-red-400 mt-1">↑ 2 new this hour</p>
+                    </div>
+                    <div class="w-10 h-10 bg-red-500 bg-opacity-20 rounded-lg flex items-center justify-center pulse-critical">
+                        <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 mb-1">High Priority</p>
+                        <p class="text-2xl font-bold font-mono text-red-300" id="high-count">0</p>
+                        <p class="text-xs text-red-300 mt-1">↑ 1 new this hour</p>
+                    </div>
+                    <div class="w-10 h-10 bg-red-400 bg-opacity-20 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 mb-1">Medium Priority</p>
+                        <p class="text-2xl font-bold font-mono text-yellow-400" id="medium-count">0</p>
+                        <p class="text-xs text-yellow-400 mt-1">↓ 2 resolved</p>
+                    </div>
+                    <div class="w-10 h-10 bg-yellow-500 bg-opacity-20 rounded-lg flex items-center justify-center pulse-warning">
+                        <svg class="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <div class="metric-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 mb-1">Response Time</p>
+                        <p class="text-2xl font-bold font-mono text-green-400" id="response-time">2.3m</p>
+                        <p class="text-xs text-green-400 mt-1">Avg resolution time</p>
+                    </div>
+                    <div class="w-10 h-10 bg-green-500 bg-opacity-20 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters and Actions -->
+        <div class="metric-card rounded-xl p-6 mb-6">
+            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <span class="text-sm text-gray-400">Filter by:</span>
+                        <select id="severity-filter" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500">
+                            <option value="all">All Severities</option>
+                            <option value="critical">Critical</option>
+                            <option value="high">High</option>
+                            <option value="medium">Medium</option>
+                            <option value="low">Low</option>
+                        </select>
+                    </div>
+                    
+                    <div class="flex items-center space-x-2">
+                        <select id="status-filter" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500">
+                            <option value="active">Active Alerts</option>
+                            <option value="resolved">Resolved</option>
+                            <option value="all">All Status</option>
+                        </select>
+                    </div>
+                    
+                    <div class="flex items-center space-x-2">
+                        <input type="text" id="alert-search" placeholder="Search alerts..." 
+                               class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-blue-500">
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <button id="bulk-actions" class="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                        </svg>
+                        <span>Bulk Actions</span>
+                    </button>
+                    
+                    <button id="export-alerts" class="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                        <span>Export</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="mt-4 flex items-center space-x-2">
+                <span class="text-sm text-gray-400">Active filters:</span>
+                <div id="active-filters" class="flex flex-wrap gap-2">
+                    <!-- Active filters will be shown here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Alerts List -->
+            <div class="lg:col-span-2">
+                <div class="metric-card rounded-xl p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold flex items-center">
+                            <svg class="w-5 h-5 mr-2 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                            </svg>
+                            Active Alerts
+                        </h3>
+                        <div class="flex items-center space-x-2">
+                            <span class="text-sm text-gray-400">Auto-refresh:</span>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="auto-refresh" class="sr-only peer" checked>
+                                <div class="w-9 h-5 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div id="alerts-container" class="space-y-4 max-h-96 overflow-y-auto">
+                        <!-- Alerts will be populated by JavaScript -->
+                    </div>
+                    
+                    <div id="loading-alerts" class="text-center py-8 hidden">
+                        <div class="inline-flex items-center space-x-2">
+                            <div class="w-4 h-4 bg-blue-500 rounded-full animate-pulse"></div>
+                            <span class="text-gray-400">Loading more alerts...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Alert Details and Actions -->
+            <div class="space-y-6">
+                <!-- Alert Details Panel -->
+                <div class="metric-card rounded-xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Alert Details</h3>
+                    <div id="alert-details">
+                        <div class="text-center text-gray-400 py-8">
+                            <svg class="w-12 h-12 mx-auto mb-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <p>Select an alert to view details</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="metric-card rounded-xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Quick Actions</h3>
+                    <div class="space-y-3">
+                        <button class="action-button w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center space-x-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728"></path>
+                            </svg>
+                            <span>Block IP</span>
+                        </button>
+                        
+                        <button class="action-button w-full bg-yellow-600 text-white py-2 rounded-lg hover:bg-yellow-700 transition-colors flex items-center justify-center space-x-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                            </svg>
+                            <span>Monitor IP</span>
+                        </button>
+                        
+                        <button class="action-button w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                            </svg>
+                            <span>Investigate</span>
+                        </button>
+                        
+                        <button class="action-button w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center space-x-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            <span>Mark Resolved</span>
+                        </button>
+                        
+                        <button class="action-button w-full bg-gray-600 text-white py-2 rounded-lg hover:bg-gray-700 transition-colors flex items-center justify-center space-x-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                            </svg>
+                            <span>Escalate</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Alert Timeline -->
+                <div class="metric-card rounded-xl p-6">
+                    <h3 class="text-lg font-semibold mb-4">Alert Timeline</h3>
+                    <div class="timeline-container">
+                        <div class="timeline-line"></div>
+                        <div id="alert-timeline">
+                            <!-- Timeline items will be populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Incident Correlation -->
+        <div class="mt-8">
+            <div class="metric-card rounded-xl p-6">
+                <h3 class="text-lg font-semibold mb-4 flex items-center">
+                    <svg class="w-5 h-5 mr-2 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                    </svg>
+                    Correlated Incidents
+                </h3>
+                <div id="correlated-incidents" class="space-y-4">
+                    <!-- Correlated incidents will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="mt-16 border-t border-gray-800 py-8">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <p class="text-sm text-gray-400">© 2024 Sentinel Protocol - API Abuse Detection Platform. Securing your APIs with intelligent monitoring.</p>
+        </div>
+    </footer>
+    <script src="{{ url_for('static', filename='js/alerts.js') }}"></script>
+<!-- 
+    <script>
+        // Alert Management functionality
+        class AlertManager {
+            constructor() {
+                this.alerts = [];
+                this.selectedAlert = null;
+                this.autoRefreshInterval = null;
+                this.filters = {
+                    severity: 'all',
+                    status: 'active',
+                    search: ''
+                };
+                this.init();
+            }
+
+            init() {
+                this.initializeClock();
+                this.setupEventListeners();
+                this.loadMockAlerts();
+                this.startAutoRefresh();
+            }
+
+            initializeClock() {
+                const updateClock = () => {
+                    const now = new Date();
+                    const timeString = now.toLocaleTimeString('en-US', {
+                        hour12: false,
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
+                    
+                    const dateString = now.toLocaleDateString('en-US', {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric'
+                    });
+                    
+                    const timeElement = document.getElementById('current-time');
+                    if (timeElement) {
+                        timeElement.textContent = `${dateString} ${timeString}`;
+                    }
+                };
+                
+                updateClock();
+                setInterval(updateClock, 1000);
+            }
+
+            setupEventListeners() {
+                // Filter controls
+                document.getElementById('severity-filter').addEventListener('change', (e) => {
+                    this.filters.severity = e.target.value;
+                    this.filterAlerts();
+                });
+
+                document.getElementById('status-filter').addEventListener('change', (e) => {
+                    this.filters.status = e.target.value;
+                    this.filterAlerts();
+                });
+
+                document.getElementById('alert-search').addEventListener('input', (e) => {
+                    this.filters.search = e.target.value.toLowerCase();
+                    this.filterAlerts();
+                });
+
+                // Auto-refresh toggle
+                document.getElementById('auto-refresh').addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        this.startAutoRefresh();
+                    } else {
+                        this.stopAutoRefresh();
+                    }
+                });
+
+                // Export button
+                document.getElementById('export-alerts').addEventListener('click', () => {
+                    this.exportAlerts();
+                });
+            }
+
+            loadMockAlerts() {
+                // Generate mock alert data
+                const reasons = [
+                    'Rate limit exceeded',
+                    'Multiple failed authentication attempts',
+                    'Suspicious API usage pattern',
+                    'Transaction without balance check',
+                    'Admin endpoint access attempt',
+                    'Geographic anomaly detected',
+                    'Unusual request timing pattern'
+                ];
+
+                const ips = ['192.168.1.100', '10.0.0.50', '172.16.0.25', '192.168.1.101', '203.0.113.42'];
+                const apiKeys = ['key_1', 'key_2', 'key_3', 'key_4', 'key_5'];
+
+                for (let i = 0; i < 25; i++) {
+                    const timestamp = Date.now() - Math.random() * 86400000; // Last 24 hours
+                    const severity = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'][Math.floor(Math.random() * 4)];
+                    const reason = reasons[Math.floor(Math.random() * reasons.length)];
+                    const ip = ips[Math.floor(Math.random() * ips.length)];
+                    const apiKey = apiKeys[Math.floor(Math.random() * apiKeys.length)];
+                    const resolved = Math.random() > 0.7;
+
+                    this.alerts.push({
+                        id: i + 1,
+                        ip,
+                        apiKey,
+                        reason,
+                        severity,
+                        timestamp,
+                        resolved,
+                        correlationId: Math.floor(Math.random() * 5) + 1,
+                        details: {
+                            requestCount: Math.floor(Math.random() * 1000) + 50,
+                            failedRequests: Math.floor(Math.random() * 50),
+                            userAgent: 'Mozilla/5.0 (compatible; API-Client/1.0)',
+                            location: this.getMockLocation(ip)
+                        }
+                    });
+                }
+
+                this.alerts.sort((a, b) => {
+                    // Sort by severity first, then by timestamp
+                    const severityOrder = { 'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1 };
+                    if (severityOrder[a.severity] !== severityOrder[b.severity]) {
+                        return severityOrder[b.severity] - severityOrder[a.severity];
+                    }
+                    return b.timestamp - a.timestamp;
+                });
+
+                this.renderAlerts();
+                this.renderTimeline();
+                this.renderCorrelatedIncidents();
+                this.updateStatistics();
+            }
+
+            getMockLocation(ip) {
+                const locations = [
+                    { country: 'United States', city: 'New York', lat: 40.7128, lng: -74.0060 },
+                    { country: 'Russia', city: 'Moscow', lat: 55.7558, lng: 37.6176 },
+                    { country: 'China', city: 'Beijing', lat: 39.9042, lng: 116.4074 },
+                    { country: 'Germany', city: 'Berlin', lat: 52.5200, lng: 13.4050 },
+                    { country: 'Japan', city: 'Tokyo', lat: 35.6762, lng: 139.6503 }
+                ];
+                
+                return locations[Math.floor(Math.random() * locations.length)];
+            }
+
+            renderAlerts() {
+                const container = document.getElementById('alerts-container');
+                const filteredAlerts = this.getFilteredAlerts();
+                
+                const html = filteredAlerts.map(alert => {
+                    const timeAgo = this.getTimeAgo(alert.timestamp);
+                    const severityClass = `alert-${alert.severity.toLowerCase()}`;
+                    const severityBadge = `severity-${alert.severity.toLowerCase()}`;
+                    
+                    return `
+                        <div class="alert-card ${severityClass} p-4 rounded-lg cursor-pointer ${alert.resolved ? 'alert-resolved' : ''}" 
+                             onclick="alertManager.selectAlert(${alert.id})">
+                            <div class="flex items-start justify-between">
+                                <div class="flex-1">
+                                    <div class="flex items-center space-x-2 mb-2">
+                                        <span class="severity-badge ${severityBadge}">${alert.severity}</span>
+                                        <span class="text-xs text-gray-400 font-mono">${timeAgo}</span>
+                                        ${alert.resolved ? '<span class="text-xs px-2 py-1 bg-green-600 text-white rounded">RESOLVED</span>' : ''}
+                                    </div>
+                                    <p class="text-sm font-medium text-gray-100 mb-1">${alert.reason}</p>
+                                    <div class="flex items-center space-x-4 text-xs text-gray-400">
+                                        <span class="font-mono">IP: ${alert.ip}</span>
+                                        <span class="font-mono">API: ${alert.apiKey}</span>
+                                        <span>${alert.details.location.country}</span>
+                                    </div>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    ${!alert.resolved ? `
+                                        <button onclick="event.stopPropagation(); alertManager.resolveAlert(${alert.id})" 
+                                                class="text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700">Resolve</button>
+                                        <button onclick="event.stopPropagation(); alertManager.blockIP('${alert.ip}')" 
+                                                class="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700">Block</button>
+                                    ` : ''}
+                                    <button onclick="event.stopPropagation(); alertManager.investigateAlert(${alert.id})" 
+                                            class="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">Investigate</button>
+                                </div>
+                            </div>
+                            ${alert.correlationId ? `<div class="mt-2 text-xs text-gray-500">Related to incident #${alert.correlationId}</div>` : ''}
+                        </div>
+                    `;
+                }).join('');
+
+                container.innerHTML = html;
+                
+                // Animate alerts
+                anime({
+                    targets: '.alert-card',
+                    translateX: [-20, 0],
+                    opacity: [0, 1],
+                    duration: 600,
+                    delay: anime.stagger(100),
+                    easing: 'easeOutExpo'
+                });
+            }
+
+            selectAlert(alertId) {
+                this.selectedAlert = this.alerts.find(a => a.id === alertId);
+                this.renderAlertDetails();
+                
+                // Highlight selected alert
+                document.querySelectorAll('.alert-card').forEach(card => {
+                    card.classList.remove('ring-2', 'ring-blue-500');
+                });
+                event.target.closest('.alert-card').classList.add('ring-2', 'ring-blue-500');
+            }
+
+            renderAlertDetails() {
+                if (!this.selectedAlert) return;
+
+                const container = document.getElementById('alert-details');
+                const alert = this.selectedAlert;
+                
+                container.innerHTML = `
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-lg font-semibold text-gray-100">Alert #${alert.id}</h4>
+                            <span class="severity-badge severity-${alert.severity.toLowerCase()}">${alert.severity}</span>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <label class="block text-gray-400 mb-1">Timestamp</label>
+                                <p class="text-gray-100">${new Date(alert.timestamp).toLocaleString()}</p>
+                            </div>
+                            <div>
+                                <label class="block text-gray-400 mb-1">IP Address</label>
+                                <p class="text-gray-100 font-mono">${alert.ip}</p>
+                            </div>
+                            <div>
+                                <label class="block text-gray-400 mb-1">API Key</label>
+                                <p class="text-gray-100 font-mono">${alert.apiKey}</p>
+                            </div>
+                            <div>
+                                <label class="block text-gray-400 mb-1">Location</label>
+                                <p class="text-gray-100">${alert.details.location.city}, ${alert.details.location.country}</p>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-gray-400 mb-1">Reason</label>
+                            <p class="text-gray-100">${alert.reason}</p>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <label class="block text-gray-400 mb-1">Request Count</label>
+                                <p class="text-gray-100 font-mono">${alert.details.requestCount}</p>
+                            </div>
+                            <div>
+                                <label class="block text-gray-400 mb-1">Failed Requests</label>
+                                <p class="text-gray-100 font-mono text-red-400">${alert.details.failedRequests}</p>
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-gray-400 mb-1">User Agent</label>
+                            <p class="text-gray-100 text-xs font-mono bg-gray-900 p-2 rounded">${alert.details.userAgent}</p>
+                        </div>
+                        
+                        <div class="pt-4 border-t border-gray-700">
+                            <h5 class="text-sm font-medium text-gray-300 mb-2">Recommended Actions</h5>
+                            <div class="space-y-2">
+                                ${alert.severity === 'CRITICAL' || alert.severity === 'HIGH' ? `
+                                    <div class="text-sm text-red-400">• Immediate IP blocking recommended</div>
+                                    <div class="text-sm text-yellow-400">• Monitor for similar patterns</div>
+                                ` : `
+                                    <div class="text-sm text-blue-400">• Continue monitoring</div>
+                                    <div class="text-sm text-gray-400">• Check related logs</div>
+                                `}
+                                <div class="text-sm text-gray-400">• Review access patterns</div>
+                            </div>
+                        </div>
+                        
+                        ${!alert.resolved ? `
+                            <div class="flex space-x-2 pt-4">
+                                <button onclick="alertManager.resolveAlert(${alert.id})" class="flex-1 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Mark Resolved</button>
+                                <button onclick="alertManager.escalateAlert(${alert.id})" class="flex-1 px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700">Escalate</button>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+
+            renderTimeline() {
+                const container = document.getElementById('alert-timeline');
+                const recentAlerts = this.alerts.slice(0, 10);
+                
+                const html = recentAlerts.map(alert => {
+                    const timeAgo = this.getTimeAgo(alert.timestamp);
+                    const dotColor = this.getSeverityColor(alert.severity);
+                    
+                    return `
+                        <div class="timeline-item">
+                            <div class="timeline-dot" style="background-color: ${dotColor}"></div>
+                            <div class="text-sm">
+                                <p class="font-medium text-gray-100">${alert.reason}</p>
+                                <p class="text-xs text-gray-400">${timeAgo} • ${alert.ip}</p>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                container.innerHTML = html;
+            }
+
+            renderCorrelatedIncidents() {
+                const container = document.getElementById('correlated-incidents');
+                const correlations = this.findCorrelatedIncidents();
+                
+                const html = correlations.map(correlation => `
+                    <div class="incident-flow p-4 rounded-lg">
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="font-medium text-gray-100">Incident #${correlation.id}</h4>
+                            <span class="text-xs px-2 py-1 bg-purple-600 text-white rounded">${correlation.alerts.length} alerts</span>
+                        </div>
+                        <p class="text-sm text-gray-400 mb-3">${correlation.description}</p>
+                        <div class="space-y-2">
+                            ${correlation.alerts.slice(0, 3).map(alert => `
+                                <div class="flex items-center justify-between text-xs">
+                                    <span class="text-gray-300">${alert.reason}</span>
+                                    <span class="text-gray-400">${alert.ip}</span>
+                                </div>
+                            `).join('')}
+                            ${correlation.alerts.length > 3 ? `<div class="text-xs text-gray-500">+${correlation.alerts.length - 3} more alerts</div>` : ''}
+                        </div>
+                        <div class="correlation-line mt-3"></div>
+                        <div class="flex items-center justify-between mt-3">
+                            <span class="text-xs text-gray-400">Last activity: ${this.getTimeAgo(correlation.lastActivity)}</span>
+                            <button onclick="alertManager.investigateIncident(${correlation.id})" class="text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700">Investigate</button>
+                        </div>
+                    </div>
+                `).join('');
+
+                container.innerHTML = html || '<div class="text-center text-gray-400 py-8">No correlated incidents found</div>';
+            }
+
+            findCorrelatedIncidents() {
+                const correlations = {};
+                
+                this.alerts.forEach(alert => {
+                    if (alert.correlationId) {
+                        if (!correlations[alert.correlationId]) {
+                            correlations[alert.correlationId] = {
+                                id: alert.correlationId,
+                                alerts: [],
+                                description: `Pattern detected from ${alert.ip}`,
+                                lastActivity: alert.timestamp
+                            };
+                        }
+                        correlations[alert.correlationId].alerts.push(alert);
+                        if (alert.timestamp > correlations[alert.correlationId].lastActivity) {
+                            correlations[alert.correlationId].lastActivity = alert.timestamp;
+                        }
+                    }
+                });
+                
+                return Object.values(correlations).filter(c => c.alerts.length > 1).slice(0, 5);
+            }
+
+            getFilteredAlerts() {
+                return this.alerts.filter(alert => {
+                    // Severity filter
+                    if (this.filters.severity !== 'all' && alert.severity.toLowerCase() !== this.filters.severity) {
+                        return false;
+                    }
+                    
+                    // Status filter
+                    if (this.filters.status === 'active' && alert.resolved) {
+                        return false;
+                    }
+                    if (this.filters.status === 'resolved' && !alert.resolved) {
+                        return false;
+                    }
+                    
+                    // Search filter
+                    if (this.filters.search && 
+                        !alert.reason.toLowerCase().includes(this.filters.search) &&
+                        !alert.ip.includes(this.filters.search) &&
+                        !alert.apiKey.toLowerCase().includes(this.filters.search)) {
+                        return false;
+                    }
+                    
+                    return true;
+                });
+            }
+
+            updateStatistics() {
+                const filteredAlerts = this.getFilteredAlerts();
+                const critical = filteredAlerts.filter(a => a.severity === 'CRITICAL').length;
+                const high = filteredAlerts.filter(a => a.severity === 'HIGH').length;
+                const medium = filteredAlerts.filter(a => a.severity === 'MEDIUM').length;
+                
+                document.getElementById('critical-count').textContent = critical;
+                document.getElementById('high-count').textContent = high;
+                document.getElementById('medium-count').textContent = medium;
+            }
+
+            resolveAlert(alertId) {
+                const alert = this.alerts.find(a => a.id === alertId);
+                if (alert) {
+                    alert.resolved = true;
+                    this.renderAlerts();
+                    this.updateStatistics();
+                    this.showNotification(`Alert #${alertId} marked as resolved`, 'success');
+                    
+                    if (this.selectedAlert && this.selectedAlert.id === alertId) {
+                        this.renderAlertDetails();
+                    }
+                }
+            }
+
+            escalateAlert(alertId) {
+                this.showNotification(`Alert #${alertId} escalated to security team`, 'info');
+            }
+
+            blockIP(ip) {
+                if (confirm(`Are you sure you want to block IP ${ip}?`)) {
+                    this.showNotification(`IP ${ip} has been blocked`, 'success');
+                }
+            }
+
+            investigateAlert(alertId) {
+                window.location.href = `logs.html?alert=${alertId}`;
+            }
+
+            investigateIncident(correlationId) {
+                this.showNotification(`Investigating incident #${correlationId}`, 'info');
+            }
+
+            filterAlerts() {
+                this.renderAlerts();
+                this.updateStatistics();
+                this.updateActiveFilters();
+            }
+
+            updateActiveFilters() {
+                const container = document.getElementById('active-filters');
+                const filters = [];
+                
+                if (this.filters.severity !== 'all') {
+                    filters.push(`Severity: ${this.filters.severity}`);
+                }
+                if (this.filters.status !== 'active') {
+                    filters.push(`Status: ${this.filters.status}`);
+                }
+                if (this.filters.search) {
+                    filters.push(`Search: ${this.filters.search}`);
+                }
+                
+                container.innerHTML = filters.map(filter => `
+                    <span class="filter-chip text-xs px-2 py-1 rounded-full">${filter}</span>
+                `).join('');
+            }
+
+            exportAlerts() {
+                const filteredAlerts = this.getFilteredAlerts();
+                const csvContent = this.generateCSV(filteredAlerts);
+                const blob = new Blob([csvContent], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `alerts_${new Date().toISOString()}.csv`;
+                a.click();
+                window.URL.revokeObjectURL(url);
+                
+                this.showNotification(`Exported ${filteredAlerts.length} alerts`, 'success');
+            }
+
+            generateCSV(alerts) {
+                const headers = ['ID', 'Timestamp', 'IP', 'API Key', 'Severity', 'Reason', 'Status', 'Location'];
+                const rows = alerts.map(alert => [
+                    alert.id,
+                    new Date(alert.timestamp).toISOString(),
+                    alert.ip,
+                    alert.apiKey,
+                    alert.severity,
+                    alert.reason,
+                    alert.resolved ? 'Resolved' : 'Active',
+                    `${alert.details.location.city}, ${alert.details.location.country}`
+                ]);
+                
+                return [headers, ...rows].map(row => row.join(',')).join('\n');
+            }
+
+            startAutoRefresh() {
+                this.autoRefreshInterval = setInterval(() => {
+                    this.addNewAlert();
+                }, 15000); // Add new alert every 15 seconds
+            }
+
+            stopAutoRefresh() {
+                if (this.autoRefreshInterval) {
+                    clearInterval(this.autoRefreshInterval);
+                    this.autoRefreshInterval = null;
+                }
+            }
+
+            addNewAlert() {
+                // Simulate new alert
+                const reasons = ['Rate limit exceeded', 'Multiple failed authentication attempts', 'Suspicious API usage pattern'];
+                const severities = ['CRITICAL', 'HIGH', 'MEDIUM'];
+                const ips = ['192.168.1.100', '10.0.0.50', '172.16.0.25'];
+                
+                const newAlert = {
+                    id: this.alerts.length + 1,
+                    ip: ips[Math.floor(Math.random() * ips.length)],
+                    apiKey: `key_${Math.floor(Math.random() * 5) + 1}`,
+                    reason: reasons[Math.floor(Math.random() * reasons.length)],
+                    severity: severities[Math.floor(Math.random() * severities.length)],
+                    timestamp: Date.now(),
+                    resolved: false,
+                    correlationId: Math.floor(Math.random() * 5) + 1,
+                    details: {
+                        requestCount: Math.floor(Math.random() * 1000) + 50,
+                        failedRequests: Math.floor(Math.random() * 50),
+                        userAgent: 'Mozilla/5.0 (compatible; API-Client/1.0)',
+                        location: this.getMockLocation(ips[Math.floor(Math.random() * ips.length)])
+                    }
+                };
+
+                this.alerts.unshift(newAlert);
+                this.renderAlerts();
+                this.updateStatistics();
+                this.showNotification(`New ${newAlert.severity} alert: ${newAlert.reason}`, 'warning');
+            }
+
+            getSeverityColor(severity) {
+                const colors = {
+                    'CRITICAL': '#ff4757',
+                    'HIGH': '#ff3742',
+                    'MEDIUM': '#ffa502',
+                    'LOW': '#3742fa'
+                };
+                return colors[severity] || '#3742fa';
+            }
+
+            getTimeAgo(timestamp) {
+                const now = Date.now();
+                const diff = now - timestamp;
+                const minutes = Math.floor(diff / 60000);
+                
+                if (minutes < 1) return 'now';
+                if (minutes < 60) return `${minutes}m ago`;
+                
+                const hours = Math.floor(minutes / 60);
+                if (hours < 24) return `${hours}h ago`;
+                
+                const days = Math.floor(hours / 24);
+                return `${days}d ago`;
+            }
+
+            showNotification(message, type = 'info') {
+                const notification = document.createElement('div');
+                notification.className = `fixed top-20 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm ${
+                    type === 'success' ? 'bg-green-600' : 
+                    type === 'error' ? 'bg-red-600' : 
+                    type === 'warning' ? 'bg-yellow-600' :
+                    'bg-blue-600'
+                } text-white`;
+                notification.textContent = message;
+                
+                document.body.appendChild(notification);
+                
+                anime({
+                    targets: notification,
+                    translateX: [300, 0],
+                    opacity: [0, 1],
+                    duration: 300,
+                    easing: 'easeOutExpo'
+                });
+                
+                setTimeout(() => {
+                    anime({
+                        targets: notification,
+                        translateX: [0, 300],
+                        opacity: [1, 0],
+                        duration: 300,
+                        easing: 'easeInExpo',
+                        complete: () => {
+                            document.body.removeChild(notification);
+                        }
+                    });
+                }, 4000);
+            }
+        }
+
+        // Initialize alert manager
+        let alertManager;
+        document.addEventListener('DOMContentLoaded', function() {
+            alertManager = new AlertManager();
+        });
+    </script> -->
+</body>
+</html>
