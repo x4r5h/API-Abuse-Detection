@@ -473,25 +473,61 @@
             async normalTraffic() {
                 const attackId = 'normal';
                 if (this.activeAttacks.has(attackId)) return;
-                
+
                 this.activeAttacks.add(attackId);
                 this.updateStatus(attackId, 'Running', 'running');
-                this.log('🟢 Normal traffic simulation started', 'success');
-                
+                this.log('🟢 Normal traffic simulation started (human-like)', 'success');
+
                 const duration = parseInt(document.getElementById('normal-duration').value) * 1000;
                 const startTime = Date.now();
-                
+
+                const actions = ['check_balance', 'view_history', 'make_transaction'];
+
                 while (Date.now() - startTime < duration && this.activeAttacks.has(attackId)) {
                     const ip = this.simulatedIPs[Math.floor(Math.random() * this.simulatedIPs.length)];
-                    const apiKey = `user-${Math.random().toString(36).substr(2, 9)}`;
-                    await this.makeRequest('/api/balance', ip, { apiKey });
-                    await new Promise(r => setTimeout(r, 2000 + Math.random() * 3000));
+                    const apiKey = `user-${Math.random().toString(36).slice(2, 8)}`;
+
+                    const action = actions[Math.floor(Math.random() * actions.length)];
+
+                    try {
+                        if (action === 'check_balance') {
+                            await this.makeRequest('/api/balance', ip, { apiKey });
+                            this.log('Normal: Check balance', 'info', ip);
+
+                        } else if (action === 'view_history') {
+                            await this.makeRequest('/api/history', ip, { apiKey });
+                            this.log('Normal: View history', 'info', ip);
+
+                        } else if (action === 'make_transaction') {
+                            // Normal users usually check balance first
+                            await this.makeRequest('/api/balance', ip, { apiKey });
+                            await new Promise(r => setTimeout(r, 500));
+
+                            await this.makeRequest('/api/transaction', ip, {
+                                method: 'POST',
+                                apiKey,
+                                body: {
+                                    amount: Math.floor(Math.random() * 500) + 10,
+                                    recipient: 'merchant_123'
+                                }
+                            });
+
+                            this.log('Normal: Transaction completed', 'success', ip);
+                        }
+                    } catch (e) {
+                        this.log(`Normal traffic error: ${e.message}`, 'warning', ip);
+                    }
+
+                    // Human-like delay (2–10 seconds)
+                    const delay = 2000 + Math.random() * 8000;
+                    await new Promise(r => setTimeout(r, delay));
                 }
-                
+
                 this.activeAttacks.delete(attackId);
                 this.updateStatus(attackId, 'Complete', 'done');
-                this.log('✓ Normal traffic completed', 'success');
+                this.log('✓ Normal traffic completed (legitimate behavior)', 'success');
             }
+
 
             async rateLimitAttack() {
                 const attackId = 'rate';
