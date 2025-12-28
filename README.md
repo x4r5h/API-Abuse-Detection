@@ -222,6 +222,7 @@ GET  /api/monitoring/alerts             # Security alerts
 GET  /api/monitoring/blocked            # Blocked IPs
 POST /api/monitoring/block-ip           # Manual IP block
 POST /api/monitoring/alert/:id/resolve  # Resolve alert
+GET  /api/monitoring/compliance-report"  #compliance-report
 ```
 
 ---
