@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-IP Attack Simulator - Sentinel Protocol</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #f1f2f6;
+        }
+        .attack-btn { transition: all 0.3s ease; }
+        .attack-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 25px rgba(255, 71, 87, 0.3); }
+        .log-entry { animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
+        .status-running { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .ip-badge { display: inline-block; font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 0.375rem; margin: 0.125rem; }
+        .ip-active { background-color: #10b981; animation: blink 1s infinite; }
+        .ip-blocked { background-color: #ef4444; }
+        .ip-idle { background-color: #6b7280; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+    </style>
+</head>
+<body class="min-h-screen p-8">
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold mb-2 bg-gradient-to-r from-red-500 to-pink-500 bg-clip-text text-transparent">
+                🎯 Multi-IP Attack Simulator
+            </h1>
+            <p class="text-gray-400">Simulate attacks from different IP addresses</p>
+            <p class="text-sm text-yellow-400 mt-2">⚠️ Uses X-Simulated-IP header to simulate different clients</p>
+        </div>
+
+        <!-- Configuration -->
+        <div class="bg-gray-800 rounded-xl p-6 mb-6 border border-gray-700">
+            <h2 class="text-xl font-semibold mb-4">Configuration</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-2">API Base URL</label>
+                    <input type="text" id="api-base" value="http://localhost:5000" 
+                           class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Number of IPs</label>
+                    <select id="ip-count" class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white">
+                        <option value="5">5 IPs</option>
+                        <option value="10" selected>10 IPs</option>
+                        <option value="20">20 IPs</option>
+                    </select>
+                </div>
+                <div class="flex items-end">
+                    <button onclick="attackManager.generateIPs()" class="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        Regenerate IPs
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Active IPs Display -->
+        <div class="bg-gray-800 rounded-xl p-6 mb-6 border border-gray-700">
+            <h2 class="text-xl font-semibold mb-4">Simulated IP Pool (<span id="active-count">0</span> active)</h2>
+            <div id="ip-pool" class="flex flex-wrap gap-2"></div>
+        </div>
+
+        <!-- Attack Scenarios -->
+
+        <div class="bg-gradient-to-br from-purple-900/30 to-purple-800/30 rounded-xl p-6 border border-purple-700">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-purple-400">💥 Combined Attack</h3>
+            <span id="status-combined" class="text-xs px-2 py-1 bg-gray-700 rounded">Ready</span>
+          </div>
+
+          <p class="text-sm text-gray-400 mb-4">
+            Simulates real-world botnet behavior: rate abuse, auth failures,
+            suspicious transactions, and admin probing — all together.
+          </p>
+
+          <button onclick="attackManager.combinedAttack()" 
+                  class="attack-btn w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+            Launch Combined Attack
+          </button>
+        </div>
+
+
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+            <!-- Normal Traffic -->
+            <div class="bg-gradient-to-br from-green-900/30 to-green-800/30 rounded-xl p-6 border border-green-700">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-green-400">✅ Normal Traffic</h3>
+                    <span id="status-normal" class="text-xs px-2 py-1 bg-gray-700 rounded">Ready</span>
+                </div>
+                <p class="text-sm text-gray-400 mb-4">Legitimate users, varied timing</p>
+                <div class="mb-4">
+                    <label class="block text-xs text-gray-400 mb-1">Duration (seconds)</label>
+                    <input type="number" id="normal-duration" value="60" min="10" max="300" 
+                           class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white">
+                </div>
+                <button onclick="attackManager.normalTraffic()" 
+                        class="attack-btn w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                    Start Normal Traffic
+                </button>
+            </div>
+
+            <!-- Rate Limit Attack -->
+            <div class="bg-gradient-to-br from-red-900/30 to-red-800/30 rounded-xl p-6 border border-red-700">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-red-400">⚡ Rate Limit Attack</h3>
+                    <span id="status-rate" class="text-xs px-2 py-1 bg-gray-700 rounded">Ready</span>
+                </div>
+                <p class="text-sm text-gray-400 mb-4">One IP exceeds 100 req/min</p>
+                <div class="mb-4">
+                    <label class="block text-xs text-gray-400 mb-1">Target IP</label>
+                    <input type="text" id="rate-ip" value="192.168.99.200" 
+                           class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white font-mono text-sm">
+                </div>
+                <button onclick="attackManager.rateLimitAttack()" 
+                        class="attack-btn w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+                    Launch Attack
+                </button>
+            </div>
+
+            <!-- Distributed Attack -->
+            <div class="bg-gradient-to-br from-orange-900/30 to-orange-800/30 rounded-xl p-6 border border-orange-700">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-orange-400">🔥 Distributed DDoS</h3>
+                    <span id="status-distributed" class="text-xs px-2 py-1 bg-gray-700 rounded">Ready</span>
+                </div>
+                <p class="text-sm text-gray-400 mb-4">All IPs flood simultaneously</p>
+                <div class="mb-4">
+                    <label class="block text-xs text-gray-400 mb-1">Requests per IP</label>
+                    <input type="number" id="distributed-count" value="120" min="50" max="300" 
+                           class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white">
+                </div>
+                <button onclick="attackManager.distributedAttack()" 
+                        class="attack-btn w-full px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700">
+                    Launch Attack
+                </button>
+            </div>
+
+            <!-- Failed Auth -->
+            <div class="bg-gradient-to-br from-yellow-900/30 to-yellow-800/30 rounded-xl p-6 border border-yellow-700">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-yellow-400">🔐 Brute Force</h3>
+                    <span id="status-auth" class="text-xs px-2 py-1 bg-gray-700 rounded">Ready</span>
+                </div>
+                <p class="text-sm text-gray-400 mb-4">Multiple IPs trying wrong passwords</p>
+                <div class="mb-4">
+                    <label class="block text-xs text-gray-400 mb-1">Attempts per IP</label>
+                    <input type="number" id="auth-attempts" value="8" min="5" max="20" 
+                           class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white">
+                </div>
+                <button onclick="attackManager.authBruteForce()" 
+                        class="attack-btn w-full px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700">
+                    Launch Attack
+                </button>
+            </div>
+
+            <!-- Honeypot -->
+            <div class="bg-gradient-to-br from-pink-900/30 to-pink-800/30 rounded-xl p-6 border border-pink-700">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-pink-400">🍯 Honeypot Trigger</h3>
+                    <span id="status-honeypot" class="text-xs px-2 py-1 bg-gray-700 rounded">Ready</span>
+                </div>
+                <p class="text-sm text-gray-400 mb-4">Access admin endpoints</p>
+                <div class="mb-4">
+                    <label class="block text-xs text-gray-400 mb-1">Source IP</label>
+                    <input type="text" id="honeypot-ip" value="203.0.113.66" 
+                           class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white font-mono text-sm">
+                </div>
+                <button onclick="attackManager.honeypotTrigger()" 
+                        class="attack-btn w-full px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700">
+                    Launch Attack
+                </button>
+            </div>
+
+            <!-- Control Panel -->
+            <div class="bg-gradient-to-br from-gray-900/30 to-gray-800/30 rounded-xl p-6 border border-gray-700">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-gray-400">🛑 Control Panel</h3>
+                    <span id="active-attacks" class="text-xs px-2 py-1 bg-blue-600 rounded">0 active</span>
+                </div>
+                <p class="text-sm text-gray-400 mb-4">Emergency controls</p>
+                <div class="space-y-2">
+                    <button onclick="window.open(attackManager.getConfig().baseUrl, '_blank')" 
+                            class="w-full px-4 py-2 bg-blue-700 text-white rounded-lg hover:bg-blue-600 text-sm">
+                        Open Dashboard
+                    </button>
+                    <button onclick="attackManager.clearLogs()" 
+                            class="w-full px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 text-sm">
+                        Clear Logs
+                    </button>
+                    <button onclick="attackManager.stopAll()" 
+                            class="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+                        Stop All
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-sm text-gray-400 mb-1">Total Requests</p>
+                <p id="total-requests" class="text-2xl font-bold font-mono text-green-400">0</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-sm text-gray-400 mb-1">Blocked Responses</p>
+                <p id="blocked-requests" class="text-2xl font-bold font-mono text-red-400">0</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-sm text-gray-400 mb-1">Success Rate</p>
+                <p id="success-rate" class="text-2xl font-bold font-mono text-blue-400">100%</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-sm text-gray-400 mb-1">Req/sec</p>
+                <p id="req-per-sec" class="text-2xl font-bold font-mono text-yellow-400">0</p>
+            </div>
+        </div>
+
+        <!-- Live Log -->
+        <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-semibold">📜 Live Activity Log</h2>
+                <label class="flex items-center gap-2">
+                    <input type="checkbox" id="auto-scroll" checked class="rounded">
+                    <span class="text-sm text-gray-400">Auto-scroll</span>
+                </label>
+            </div>
+            <div id="log-container" class="bg-gray-900 rounded-lg p-4 h-96 overflow-y-auto font-mono text-sm">
+                <div class="text-gray-500 text-center py-8">No activity yet. Launch an attack to see logs.</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class AttackManager {
+            constructor() {
+                this.activeAttacks = new Set();
+                this.totalRequests = 0;
+                this.blockedRequests = 0;
+                this.simulatedIPs = [];
+                this.ipStates = {};
+                this.requestsLastSecond = [];
+                this.init();
+            }
+
+            init() {
+                this.generateIPs();
+                this.startStatsUpdater();
+            }
+
+            generateIPs() {
+                const count = parseInt(document.getElementById('ip-count').value);
+                this.simulatedIPs = [];
+                this.ipStates = {};
+                
+                for (let i = 0; i < count; i++) {
+                    const ip = `${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}`;
+                    this.simulatedIPs.push(ip);
+                    this.ipStates[ip] = 'idle';
+                }
+                
+                this.renderIPPool();
+            }
+
+            renderIPPool() {
+                const container = document.getElementById('ip-pool');
+                container.innerHTML = this.simulatedIPs.map(ip => {
+                    const state = this.ipStates[ip] || 'idle';
+                    const stateClass = `ip-${state}`;
+                    return `<span class="ip-badge ${stateClass}" data-ip="${ip}">${ip}</span>`;
+                }).join('');
+            }
+
+            updateIPState(ip, state) {
+                this.ipStates[ip] = state;
+                const badge = document.querySelector(`[data-ip="${ip}"]`);
+                if (badge) {
+                    badge.className = `ip-badge ip-${state}`;
+                }
+                this.updateActiveCount();
+            }
+
+            updateActiveCount() {
+                const active = Object.values(this.ipStates).filter(s => s === 'active').length;
+                document.getElementById('active-count').textContent = active;
+            }
+
+            getConfig() {
+                return { baseUrl: document.getElementById('api-base').value };
+            }
+
+            updateStatus(attack, status, color = 'gray') {
+                const el = document.getElementById(`status-${attack}`);
+                if (el) {
+                    el.textContent = status;
+                    el.className = `text-xs px-2 py-1 rounded ${
+                        color === 'running' ? 'bg-yellow-600 status-running' : 
+                        color === 'done' ? 'bg-green-600' : 'bg-gray-700'
+                    }`;
+                }
+                document.getElementById('active-attacks').textContent = `${this.activeAttacks.size} active`;
+            }
+
+            log(message, type = 'info', ip = null) {
+                const container = document.getElementById('log-container');
+                if (container.firstChild?.textContent.includes('No activity')) {
+                    container.innerHTML = '';
+                }
+
+                const entry = document.createElement('div');
+                entry.className = 'log-entry mb-2 pb-2 border-b border-gray-800';
+                
+                const colors = { info: 'text-blue-400', success: 'text-green-400', error: 'text-red-400', warning: 'text-yellow-400' };
+                const timestamp = new Date().toLocaleTimeString();
+                const ipDisplay = ip ? `<span class="text-purple-400">[${ip}]</span>` : '';
+                
+                entry.innerHTML = `<span class="text-gray-500">[${timestamp}]</span> ${ipDisplay} <span class="${colors[type]}">${message}</span>`;
+                
+                container.insertBefore(entry, container.firstChild);
+                
+                if (document.getElementById('auto-scroll')?.checked) {
+                    container.scrollTop = 0;
+                }
+                
+                if (container.children.length > 100) {
+                    container.removeChild(container.lastChild);
+                }
+            }
+
+            async makeRequest(endpoint, sourceIP, options = {}) {
+                const config = this.getConfig();
+                const url = `${config.baseUrl}${endpoint}`;
+                
+                this.updateIPState(sourceIP, 'active');
+                
+                try {
+                    console.log(`Making request to ${url} from simulated IP: ${sourceIP}`);
+                    
+                    const response = await fetch(url, {
+                        method: options.method || 'GET',
+                        mode: 'cors',
+                        cache: 'no-cache',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Simulated-IP': sourceIP,
+                            'X-API-Key': options.apiKey || 'demo-key',
+                            'User-Agent': 'AttackSimulator/2.0',
+                            ...options.headers
+                        },
+                        body: options.body ? JSON.stringify(options.body) : undefined
+                    });
+                    
+                    console.log(`Response from ${sourceIP}: ${response.status}`);
+                    
+                    this.totalRequests++;
+                    this.requestsLastSecond.push(Date.now());
+                    document.getElementById('total-requests').textContent = this.totalRequests;
+                    
+                    if (response.status === 403 || response.status === 429) {
+                        this.blockedRequests++;
+                        this.updateIPState(sourceIP, 'blocked');
+                        document.getElementById('blocked-requests').textContent = this.blockedRequests;
+                        this.log(`Blocked (${response.status})`, 'error', sourceIP);
+                    } else if (response.status >= 200 && response.status < 300) {
+                        this.log(`Success (${response.status})`, 'success', sourceIP);
+                        setTimeout(() => this.updateIPState(sourceIP, 'idle'), 1000);
+                    } else {
+                        this.log(`Response ${response.status}`, 'warning', sourceIP);
+                        setTimeout(() => this.updateIPState(sourceIP, 'idle'), 1000);
+                    }
+                    
+                    const successRate = this.totalRequests > 0 
+                        ? ((this.totalRequests - this.blockedRequests) / this.totalRequests * 100).toFixed(1)
+                        : 100;
+                    document.getElementById('success-rate').textContent = `${successRate}%`;
+                    
+                    return response;
+                } catch (error) {
+                    console.error(`Fetch error from ${sourceIP}:`, error);
+                    this.log(`❌ Network Error: ${error.message}`, 'error', sourceIP);
+                    this.updateIPState(sourceIP, 'idle');
+                    return null;
+                }
+            }
+            async combinedAttack() {
+              const attackId = 'combined';
+              if (this.activeAttacks.has(attackId)) return;
+
+              this.activeAttacks.add(attackId);
+              this.updateStatus(attackId, 'Running', 'running');
+              this.log('💥 Combined attack started (realistic botnet)', 'error');
+
+              const ipRate = '10.0.0.66';
+              const ipAuth = '10.0.0.77';
+              const ipTxn  = '10.0.0.88';
+              const ipAdmin = '10.0.0.99';
+
+              const tasks = [
+
+                // 1️⃣ Rate-limit abuse
+                (async () => {
+                  for (let i = 0; i < 120; i++) {
+                    await this.makeRequest('/api/balance', ipRate, {
+                      apiKey: 'attacker-rate'
+                    });
+                  }
+                })(),
+
+                // 2️⃣ Failed auth brute force
+                (async () => {
+                  for (let i = 0; i < 12; i++) {
+                    await this.makeRequest('/api/balance', ipAuth, {
+                      apiKey: `invalid-${i}`
+                    });
+                    await new Promise(r => setTimeout(r, 600));
+                  }
+                })(),
+
+                // 3️⃣ Transaction without balance check
+                (async () => {
+                  for (let i = 0; i < 8; i++) {
+                    await this.makeRequest('/api/transaction', ipTxn, {
+                      method: 'POST',
+                      apiKey: 'txn-attacker',
+                      body: {
+                        amount: Math.floor(Math.random() * 1000),
+                        recipient: 'unknown'
+                      }
+                    });
+                    await new Promise(r => setTimeout(r, 1500));
+                  }
+                })(),
+
+                // 4️⃣ Admin / honeypot probing
+                (async () => {
+                  const paths = [
+                    '/api/admin/export',
+                    '/api/admin/users',
+                    '/api/admin/config'
+                  ];
+
+                  for (const path of paths) {
+                    await this.makeRequest(path, ipAdmin, {
+                      apiKey: 'admin-scan'
+                    });
+                    await new Promise(r => setTimeout(r, 800));
+                  }
+                })()
+              ];
+
+              await Promise.all(tasks);
+
+              this.activeAttacks.delete(attackId);
+              this.updateStatus(attackId, 'Complete', 'done');
+              this.log('✅ Combined attack finished — check alerts & blocks', 'success');
+            }
+
+
+            startStatsUpdater() {
+                setInterval(() => {
+                    const now = Date.now();
+                    this.requestsLastSecond = this.requestsLastSecond.filter(t => now - t < 1000);
+                    document.getElementById('req-per-sec').textContent = this.requestsLastSecond.length;
+                }, 1000);
+            }
+
+            async normalTraffic() {
+                const attackId = 'normal';
+                if (this.activeAttacks.has(attackId)) return;
+                
+                this.activeAttacks.add(attackId);
+                this.updateStatus(attackId, 'Running', 'running');
+                this.log('🟢 Normal traffic simulation started', 'success');
+                
+                const duration = parseInt(document.getElementById('normal-duration').value) * 1000;
+                const startTime = Date.now();
+                
+                while (Date.now() - startTime < duration && this.activeAttacks.has(attackId)) {
+                    const ip = this.simulatedIPs[Math.floor(Math.random() * this.simulatedIPs.length)];
+                    const apiKey = `user-${Math.random().toString(36).substr(2, 9)}`;
+                    await this.makeRequest('/api/balance', ip, { apiKey });
+                    await new Promise(r => setTimeout(r, 2000 + Math.random() * 3000));
+                }
+                
+                this.activeAttacks.delete(attackId);
+                this.updateStatus(attackId, 'Complete', 'done');
+                this.log('✓ Normal traffic completed', 'success');
+            }
+
+            async rateLimitAttack() {
+                const attackId = 'rate';
+                if (this.activeAttacks.has(attackId)) return;
+                
+                this.activeAttacks.add(attackId);
+                this.updateStatus(attackId, 'Running', 'running');
+                
+                const ip = document.getElementById('rate-ip').value;
+                this.log(`⚡ Rate limit attack from ${ip}`, 'error', ip);
+                
+                for (let i = 0; i < 150; i++) {
+                    if (!this.activeAttacks.has(attackId)) break;
+                    await this.makeRequest('/api/balance', ip, { apiKey: 'attack-key' });
+                    if ((i + 1) % 20 === 0) this.log(`Request ${i + 1}/150`, 'warning', ip);
+                    await new Promise(r => setTimeout(r, 100));
+                }
+                
+                this.activeAttacks.delete(attackId);
+                this.updateStatus(attackId, 'Complete', 'done');
+                this.log(`✓ Rate limit attack completed - ${ip} should be blocked`, 'error');
+            }
+
+            async distributedAttack() {
+                const attackId = 'distributed';
+                if (this.activeAttacks.has(attackId)) return;
+                
+                this.activeAttacks.add(attackId);
+                this.updateStatus(attackId, 'Running', 'running');
+                this.log('🔥 Distributed DDoS attack started', 'error');
+                
+                const requestsPerIP = parseInt(document.getElementById('distributed-count').value);
+                
+                const promises = this.simulatedIPs.map(async (ip) => {
+                    for (let i = 0; i < requestsPerIP; i++) {
+                        if (!this.activeAttacks.has(attackId)) break;
+                        await this.makeRequest('/api/balance', ip, { apiKey: `ddos-${ip}` });
+                        await new Promise(r => setTimeout(r, 50));
+                    }
+                });
+                
+                await Promise.all(promises);
+                
+                this.activeAttacks.delete(attackId);
+                this.updateStatus(attackId, 'Complete', 'done');
+                this.log('✓ Distributed attack completed - Multiple IPs should be blocked', 'success');
+            }
+
+            async authBruteForce() {
+                const attackId = 'auth';
+                if (this.activeAttacks.has(attackId)) return;
+                
+                this.activeAttacks.add(attackId);
+                this.updateStatus(attackId, 'Running', 'running');
+                this.log('🔐 Brute force attack started', 'error');
+                
+                const attempts = parseInt(document.getElementById('auth-attempts').value);
+                
+                const promises = this.simulatedIPs.map(async (ip) => {
+                    for (let i = 0; i < attempts; i++) {
+                        if (!this.activeAttacks.has(attackId)) break;
+                        await this.makeRequest('/api/balance', ip, { apiKey: `invalid-${i}` });
+                        await new Promise(r => setTimeout(r, 500));
+                    }
+                    this.log(`${attempts} failed auth`, 'error', ip);
+                });
+                
+                await Promise.all(promises);
+                
+                this.activeAttacks.delete(attackId);
+                this.updateStatus(attackId, 'Complete', 'done');
+                this.log('✓ Brute force completed - Failed auth alerts triggered', 'success');
+            }
+
+            async honeypotTrigger() {
+                const attackId = 'honeypot';
+                if (this.activeAttacks.has(attackId)) return;
+                
+                this.activeAttacks.add(attackId);
+                this.updateStatus(attackId, 'Running', 'running');
+                
+                const ip = document.getElementById('honeypot-ip').value;
+                this.log(`🍯 Honeypot triggered from ${ip}`, 'error', ip);
+                
+                await this.makeRequest('/api/admin/export', ip, { apiKey: 'hacker-key' });
+                
+                this.activeAttacks.delete(attackId);
+                this.updateStatus(attackId, 'Complete', 'done');
+                this.log(`✓ Honeypot accessed - ${ip} should be BLOCKED with CRITICAL alert`, 'error');
+            }
+
+            stopAll() {
+                this.log('🛑 Stopping all attacks...', 'warning');
+                this.activeAttacks.clear();
+                ['normal', 'rate', 'distributed', 'auth', 'honeypot'].forEach(a => {
+                    this.updateStatus(a, 'Stopped', 'gray');
+                });
+                this.simulatedIPs.forEach(ip => this.updateIPState(ip, 'idle'));
+                this.log('✓ All attacks stopped', 'success');
+            }
+
+            clearLogs() {
+                document.getElementById('log-container').innerHTML = '<div class="text-gray-500 text-center py-8">Logs cleared</div>';
+                this.totalRequests = 0;
+                this.blockedRequests = 0;
+                document.getElementById('total-requests').textContent = '0';
+                document.getElementById('blocked-requests').textContent = '0';
+                document.getElementById('success-rate').textContent = '100%';
+            }
+        }
+
+        const attackManager = new AttackManager();
+        
+        setTimeout(() => {
+            attackManager.log('✓ Multi-IP Attack Simulator initialized', 'success');
+            attackManager.log(`🎯 ${attackManager.simulatedIPs.length} IPs ready for simulation`, 'info');
+            attackManager.log('💡 TIP: Start with "Normal Traffic" then try attack scenarios', 'info');
+        }, 500);
+    </script>
+</body>
+</html>

@@ -5,6 +5,8 @@ import sqlite3
 import threading
 import redis
 
+
+
 app = Flask(__name__)
 
 CORS(app, resources={
@@ -14,6 +16,27 @@ CORS(app, resources={
         "allow_headers": ["Content-Type", "X-API-Key"]
     }
 })
+
+def get_client_ip():
+    """
+    Get client IP address with support for simulated IPs (testing) and proxies (production)
+    Priority: X-Simulated-IP (testing) > X-Forwarded-For (proxy) > direct IP
+    """
+    # 1. Check for simulated IP header (for testing scripts)
+    simulated_ip = request.headers.get('X-Simulated-IP')
+    if simulated_ip:
+        return simulated_ip
+    
+    # 2. Check for forwarded IP (when behind proxy/load balancer)
+    forwarded_for = request.headers.get('X-Forwarded-For')
+    if forwarded_for:
+        # X-Forwarded-For can contain multiple IPs: "client, proxy1, proxy2"
+        # We want the first one (the original client)
+        return forwarded_for.split(',')[0].strip()
+    
+    # 3. Fall back to direct connection IP
+    return request.remote_addr
+
 
 try:
     redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
@@ -92,6 +115,18 @@ def start_timer():
     request.start_time = time.time()
 
 @app.before_request
+def handle_options():
+    """Handle OPTIONS requests for CORS"""
+    if request.method == 'OPTIONS':
+        response = app.make_response('')
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-API-Key, X-Simulated-IP, User-Agent'
+        response.headers['Access-Control-Max-Age'] = '3600'
+        return response
+    return None
+
+@app.before_request
 def check_blocked():
     if not hasattr(request, 'start_time'):
         request.start_time = time.time()
@@ -121,7 +156,7 @@ def apply_rate_limit():
     
     if not check_rate_limit(client_id):
         create_alert(
-            request.remote_addr,
+            get_client_ip(),
             request.headers.get("X-API-Key", "none"),
             "Rate limit exceeded",
             "HIGH"
@@ -132,6 +167,15 @@ def apply_rate_limit():
             "error": "Too Many Requests",
             "message": "Rate limit exceeded. Please try again later."
         }), 429
+
+@app.after_request
+def add_cors_headers(response):
+    """Ensure CORS headers on all responses"""
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-API-Key, X-Simulated-IP, User-Agent'
+    response.headers['Access-Control-Max-Age'] = '3600'
+    return response
 
 @app.after_request
 def log_request(response):
@@ -152,7 +196,7 @@ def log_request(response):
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            request.remote_addr,
+            get_client_ip(),
             request.path,
             request.method,
             response.status_code,
@@ -167,7 +211,7 @@ def log_request(response):
     return response
 
 def get_client_identifier():
-    ip = request.remote_addr
+    ip = get_client_ip()
     api_key = request.headers.get("X-API-Key", "none")
     return f"{ip}:{api_key}"
 
@@ -302,6 +346,20 @@ def history():
     })
 
 # ==================== MONITORING API ROUTES ====================
+
+@app.route("/api/monitoring/correlated-incidents")
+def get_correlated_incidents():
+    conn, cursor = get_db()
+    cursor.execute("""
+        SELECT correlation_id, COUNT(*) as count, MAX(timestamp) as last
+        FROM alerts
+        WHERE resolved = 0
+        GROUP BY correlation_id
+        HAVING count > 1
+        ORDER BY last DESC
+        LIMIT 10
+    """)
+    # Return formatted results
 
 @app.route("/api/monitoring/stats")
 def get_stats():
@@ -589,7 +647,7 @@ def honeypot():
     
     cursor.execute(
         "INSERT INTO alerts (ip, api_key, reason, severity, timestamp) VALUES (?, ?, ?, ?, ?)",
-        (request.remote_addr, request.headers.get("X-API-Key", "none"), "Honeypot access attempt", "CRITICAL", time.time())
+        (get_client_ip(), request.headers.get("X-API-Key", "none"), "Honeypot access attempt", "CRITICAL", time.time())
     )
     conn.commit()
 

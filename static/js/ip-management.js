@@ -1,4 +1,5 @@
 // ip-management.js - Real Backend Integration
+console.log("ip-management.js loaded");
 
 class IPManager {
     constructor() {
@@ -12,6 +13,31 @@ class IPManager {
         this.loadIPs();
         this.updateStatistics();
     }
+    switchTab(tabName) {
+        // Update tab buttons
+        document.querySelectorAll('.tab-button').forEach(btn => {
+            btn.classList.remove('active');
+            btn.classList.add('text-gray-400');
+        });
+
+        const activeBtn = document.querySelector(`[data-tab="${tabName}"]`);
+        if (activeBtn) {
+            activeBtn.classList.add('active');
+            activeBtn.classList.remove('text-gray-400');
+        }
+
+        // Hide all tab contents
+        document.querySelectorAll('.tab-content').forEach(tab => {
+            tab.classList.add('hidden');
+        });
+
+        // Show selected tab
+        const target = document.getElementById(`${tabName}-tab`);
+        if (target) {
+            target.classList.remove('hidden');
+        }
+    }
+
 
     initializeClock() {
         const updateClock = () => {
@@ -63,7 +89,16 @@ class IPManager {
                 this.filterByStatus(e.target.value);
             });
         }
+            // Tab switching
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.switchTab(button.dataset.tab);
+            });
+        });
     }
+
+
 
     async loadIPs() {
         try {

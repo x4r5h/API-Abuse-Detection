@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IP Management - Sentinel Protocol</title>
+    <title>IP Management</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
@@ -189,10 +189,10 @@
             <div class="flex items-center justify-between h-16">
                 <div class="flex items-center space-x-4">
                     <div class="flex items-center space-x-2">
-                        <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-green-500 rounded-lg flex items-center justify-center">
+<!--                         <div class="w-8 h-8 bg-gradient-to-r from-blue-500 to-green-500 rounded-lg flex items-center justify-center">
                             <span class="text-white font-bold text-sm">SP</span>
-                        </div>
-                        <span class="text-xl font-bold bg-gradient-text">Sentinel Protocol</span>
+                        </div> -->
+                        <span class="text-xl font-bold bg-gradient-text">TEAM AAH</span>
                     </div>
                     <div class="flex items-center space-x-2 ml-8">
                         <span class="status-indicator status-online"></span>
@@ -201,7 +201,7 @@
                 </div>
                 
                 <div class="flex items-center space-x-8">
-                    <a href="index" class="nav-link text-sm font-medium text-gray-400 hover:text-white">Dashboard</a>
+                    <a href="/" class="nav-link text-sm font-medium text-gray-400 hover:text-white">Dashboard</a>
                     <a href="logs" class="nav-link text-sm font-medium text-gray-400 hover:text-white">Logs</a>
                     <a href="ip-management" class="nav-link active text-sm font-medium">IP Management</a>
                     <a href="alerts" class="nav-link text-sm font-medium text-gray-400 hover:text-white">Alerts</a>
@@ -289,10 +289,29 @@
         <!-- Tabs -->
         <div class="mb-6">
             <div class="flex space-x-8 border-b border-gray-700">
-                <button class="tab-button active pb-4 px-2 text-sm font-medium" data-tab="manage">Manage IPs</button>
-                <button class="tab-button pb-4 px-2 text-sm font-medium text-gray-400" data-tab="geolocation">Geolocation</button>
-                <button class="tab-button pb-4 px-2 text-sm font-medium text-gray-400" data-tab="rules">Auto Rules</button>
-                <button class="tab-button pb-4 px-2 text-sm font-medium text-gray-400" data-tab="bulk">Bulk Operations</button>
+                <button type="button"
+                        class="tab-button active pb-4 px-2 text-sm font-medium"
+                        data-tab="manage">
+                    Manage IPs
+                </button>
+
+                <button type="button"
+                        class="tab-button pb-4 px-2 text-sm font-medium text-gray-400"
+                        data-tab="geolocation">
+                    Geolocation
+                </button>
+
+                <button type="button"
+                        class="tab-button pb-4 px-2 text-sm font-medium text-gray-400"
+                        data-tab="rules">
+                    Auto Rules
+                </button>
+
+                <button type="button"
+                        class="tab-button pb-4 px-2 text-sm font-medium text-gray-400"
+                        data-tab="bulk">
+                    Bulk Operations
+                </button>
             </div>
         </div>
 
@@ -378,9 +397,12 @@
                 <!-- World Map -->
                 <div class="metric-card rounded-xl p-6">
                     <h3 class="text-lg font-semibold mb-4">IP Geolocation Map</h3>
-                    <div id="world-map" class="world-map">
-                        <!-- Map will be rendered here -->
+                    <div class="world-map flex items-center justify-center">
+                        <img src="{{ url_for('static', filename='resources/world-map.jpg') }}"
+                             alt="IP Geolocation Map"
+                             class="w-full h-full object-cover rounded-lg opacity-90">
                     </div>
+
                     <div class="mt-4 flex items-center justify-between text-sm text-gray-400">
                         <span>Click on dots to view IP details</span>
                         <div class="flex items-center space-x-4">
@@ -546,7 +568,7 @@
     <!-- Footer -->
     <footer class="mt-16 border-t border-gray-800 py-8">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <p class="text-sm text-gray-400">© 2024 Sentinel Protocol - API Abuse Detection Platform. Securing your APIs with intelligent monitoring.</p>
+            <p class="text-sm text-gray-400">© 2025 4R5H - API Abuse Detection Platform. Securing your APIs with intelligent monitoring.</p>
         </div>
     </footer>
 <!-- 

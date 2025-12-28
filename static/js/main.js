@@ -1,5 +1,180 @@
 // main.js - Fixed Dashboard with Better Error Handling
 
+class ToastNotification {
+    constructor() {
+        this.container = null;
+        this.createContainer();
+    }
+
+    createContainer() {
+        if (!document.getElementById('toast-container')) {
+            this.container = document.createElement('div');
+            this.container.id = 'toast-container';
+            this.container.className = 'fixed top-20 right-4 z-[9999] flex flex-col gap-3 pointer-events-none';
+            this.container.style.cssText = 'max-width: 400px;';
+            document.body.appendChild(this.container);
+        } else {
+            this.container = document.getElementById('toast-container');
+        }
+    }
+
+    show(message, type = 'info', duration = 5000) {
+        const toast = document.createElement('div');
+        toast.className = 'pointer-events-auto transform transition-all duration-300 ease-out';
+        
+        const icons = {
+            success: '✓',
+            error: '✕',
+            warning: '⚠',
+            info: 'ℹ',
+            critical: '⚠'
+        };
+
+        const colors = {
+            success: 'bg-green-600',
+            error: 'bg-red-600',
+            warning: 'bg-yellow-600',
+            info: 'bg-blue-600',
+            critical: 'bg-red-700'
+        };
+
+        const bgColor = colors[type] || colors.info;
+        const icon = icons[type] || icons.info;
+        
+        toast.innerHTML = `
+            <div class="${bgColor} text-white rounded-lg shadow-2xl flex items-start gap-3 p-4 min-w-[320px] max-w-[400px]">
+                <div class="flex-shrink-0">
+                    <div class="w-8 h-8 rounded-full bg-white bg-opacity-20 flex items-center justify-center text-xl font-bold">
+                        ${icon}
+                    </div>
+                </div>
+                <div class="flex-1 pt-0.5">
+                    <p class="text-sm font-medium leading-tight">${message}</p>
+                </div>
+                <button onclick="this.closest('.transform').remove()" 
+                        class="flex-shrink-0 text-white hover:text-gray-200 transition-colors ml-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+        `;
+        
+        // Initial state (off-screen)
+        toast.style.transform = 'translateX(120%)';
+        toast.style.opacity = '0';
+        
+        this.container.appendChild(toast);
+        
+        // Animate in
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                toast.style.transform = 'translateX(0)';
+                toast.style.opacity = '1';
+            });
+        });
+        
+        // Play sound for critical/error
+        if (type === 'critical' || type === 'error') {
+            this.playNotificationSound();
+        }
+        
+        // Auto remove
+        if (duration > 0) {
+            setTimeout(() => {
+                this.remove(toast);
+            }, duration);
+        }
+        
+        return toast;
+    }
+
+    remove(toast) {
+        toast.style.transform = 'translateX(120%)';
+        toast.style.opacity = '0';
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.parentNode.removeChild(toast);
+            }
+        }, 300);
+    }
+
+    playNotificationSound() {
+        // Create a subtle beep sound using Web Audio API
+        try {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.value = 800;
+            oscillator.type = 'sine';
+            
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.3);
+        } catch (e) {
+            console.log('Audio not available');
+        }
+    }
+
+    success(message, duration = 4000) {
+        return this.show(message, 'success', duration);
+    }
+
+    error(message, duration = 6000) {
+        return this.show(message, 'error', duration);
+    }
+
+    warning(message, duration = 5000) {
+        return this.show(message, 'warning', duration);
+    }
+
+    info(message, duration = 4000) {
+        return this.show(message, 'info', duration);
+    }
+
+    critical(message, duration = 8000) {
+        return this.show(message, 'critical', duration);
+    }
+}
+
+// Create global toast instance
+window.toast = new ToastNotification();
+
+// Update the SentinelDashboard class showNotification method
+// Replace the existing showNotification method with:
+/*
+showNotification(message, type = 'info') {
+    window.toast.show(message, type);
+}
+*/
+
+// Also update error handling in loadDashboardData:
+/*
+async loadDashboardData() {
+    try {
+        // ... existing code ...
+    } catch (error) {
+        console.error('Error loading dashboard data:', error);
+        window.toast.error('Failed to load dashboard data. Retrying...');
+        setTimeout(() => this.loadDashboardData(), 5000);
+    }
+}
+*/
+
+// Example usage:
+// window.toast.success('Operation completed successfully!');
+// window.toast.error('Failed to load data');
+// window.toast.warning('Rate limit approaching');
+// window.toast.info('Data refreshed');
+// window.toast.critical('CRITICAL: System under attack!');
+
+
 class SentinelDashboard {
     constructor() {
         this.apiBase = '/api/monitoring';
@@ -80,8 +255,12 @@ class SentinelDashboard {
             const statsData = await statsResponse.json();
             this.updateStats(statsData);
             
-            if (statsData.top_endpoints) {
+            // Update endpoints table AND chart
+            if (statsData.top_endpoints && statsData.top_endpoints.length > 0) {
                 this.updateEndpointsTable(statsData.top_endpoints);
+                this.updateEndpointsChart(statsData.top_endpoints);  // Add this line
+            } else {
+                window.toast?.warning('No endpoint data available yet');
             }
 
             // Load timeline for traffic chart
@@ -107,12 +286,43 @@ class SentinelDashboard {
                 this.updateBlockedCount(blockedData.length);
             }
 
+            // Success notification
+            if (window.toast) {
+                window.toast.success('Dashboard data loaded', 3000);
+            }
+
         } catch (error) {
             console.error('Error loading dashboard data:', error);
-            this.showNotification('Failed to load some dashboard data', 'error');
+            if (window.toast) {
+                window.toast.error('Failed to load dashboard data. Retrying...');
+            }
+            setTimeout(() => this.loadDashboardData(), 5000);
         }
     }
 
+    updateEndpointsChart(endpoints) {
+        if (!this.charts.endpoints || !endpoints || endpoints.length === 0) {
+            console.log('Cannot update endpoints chart: chart not initialized or no data');
+            return;
+        }
+
+        try {
+            const data = endpoints.map(e => ({
+                value: e.count,
+                name: e.path
+            }));
+
+            this.charts.endpoints.setOption({
+                series: [{
+                    data: data
+                }]
+            });
+            
+            console.log('Endpoints chart updated with data:', data);
+        } catch (error) {
+            console.error('Error updating endpoints chart:', error);
+        }
+    }
     updateStats(data) {
         this.animateCounter('total-requests', data.total_requests || 0);
         this.animateCounter('failed-requests', data.failed_requests || 0);
@@ -413,41 +623,47 @@ class SentinelDashboard {
     }
 
     showNotification(message, type = 'info') {
-        const notification = document.createElement('div');
-        notification.className = `fixed top-20 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm ${
-            type === 'success' ? 'bg-green-600' : 
-            type === 'error' ? 'bg-red-600' : 
-            'bg-blue-600'
-        } text-white`;
-        notification.textContent = message;
-        
-        document.body.appendChild(notification);
-        
-        if (typeof anime !== 'undefined') {
-            anime({
-                targets: notification,
-                translateX: [300, 0],
-                opacity: [0, 1],
-                duration: 300,
-                easing: 'easeOutExpo'
-            });
+        if (window.toast) {
+            window.toast.show(message, type);
         }
-        
-        setTimeout(() => {
-            if (typeof anime !== 'undefined') {
-                anime({
-                    targets: notification,
-                    translateX: [0, 300],
-                    opacity: [1, 0],
-                    duration: 300,
-                    easing: 'easeInExpo',
-                    complete: () => document.body.removeChild(notification)
-                });
-            } else {
-                document.body.removeChild(notification);
-            }
-        }, 3000);
     }
+
+    // showNotification(message, type = 'info') {
+    //     const notification = document.createElement('div');
+    //     notification.className = `fixed top-20 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm ${
+    //         type === 'success' ? 'bg-green-600' : 
+    //         type === 'error' ? 'bg-red-600' : 
+    //         'bg-blue-600'
+    //     } text-white`;
+    //     notification.textContent = message;
+        
+    //     document.body.appendChild(notification);
+        
+    //     if (typeof anime !== 'undefined') {
+    //         anime({
+    //             targets: notification,
+    //             translateX: [300, 0],
+    //             opacity: [0, 1],
+    //             duration: 300,
+    //             easing: 'easeOutExpo'
+    //         });
+    //     }
+        
+    //     setTimeout(() => {
+    //         if (typeof anime !== 'undefined') {
+    //             anime({
+    //                 targets: notification,
+    //                 translateX: [0, 300],
+    //                 opacity: [1, 0],
+    //                 duration: 300,
+    //                 easing: 'easeInExpo',
+    //                 complete: () => document.body.removeChild(notification)
+    //             });
+    //         } else {
+    //             document.body.removeChild(notification);
+    //         }
+    //     }, 3000);
+    // }
 
     destroy() {
         if (this.updateInterval) {

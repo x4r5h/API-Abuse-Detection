@@ -1,9 +1,9 @@
-// alerts.js - Real Backend Integration
-// Save as: static/js/alerts.js
+// Enhanced alerts.js with Correlated Incidents & Better Notifications
 
 class AlertManager {
     constructor() {
         this.alerts = [];
+        this.incidents = [];
         this.selectedAlert = null;
         this.autoRefreshInterval = null;
         this.filters = {
@@ -18,6 +18,7 @@ class AlertManager {
         this.initializeClock();
         this.setupEventListeners();
         this.loadAlerts();
+        this.loadCorrelatedIncidents();
         this.startAutoRefresh();
     }
 
@@ -48,7 +49,6 @@ class AlertManager {
     }
 
     setupEventListeners() {
-        // Filter controls
         const severityFilter = document.getElementById('severity-filter');
         if (severityFilter) {
             severityFilter.addEventListener('change', (e) => {
@@ -73,7 +73,6 @@ class AlertManager {
             });
         }
 
-        // Auto-refresh toggle
         const autoRefresh = document.getElementById('auto-refresh');
         if (autoRefresh) {
             autoRefresh.addEventListener('change', (e) => {
@@ -85,7 +84,6 @@ class AlertManager {
             });
         }
 
-        // Export button
         const exportBtn = document.getElementById('export-alerts');
         if (exportBtn) {
             exportBtn.addEventListener('click', () => {
@@ -105,8 +103,9 @@ class AlertManager {
                     apiKey: alert.api_key,
                     reason: alert.reason,
                     severity: alert.severity,
-                    timestamp: alert.timestamp * 1000, // Convert to milliseconds
+                    timestamp: alert.timestamp * 1000,
                     resolved: alert.resolved,
+                    correlationId: alert.correlation_id,
                     details: {
                         requestCount: Math.floor(Math.random() * 1000) + 50,
                         failedRequests: Math.floor(Math.random() * 50),
@@ -118,14 +117,68 @@ class AlertManager {
                 this.renderAlerts();
                 this.renderTimeline();
                 this.updateStatistics();
-            } else {
-                console.error('Failed to load alerts:', response.status);
-                this.showNotification('Failed to load alerts', 'error');
             }
         } catch (error) {
             console.error('Error loading alerts:', error);
-            this.showNotification('Error loading alerts. Retrying...', 'error');
+            this.showToast('Failed to load alerts', 'error');
         }
+    }
+
+    async loadCorrelatedIncidents() {
+        try {
+            const response = await fetch('/api/monitoring/correlated-incidents');
+            if (response.ok) {
+                this.incidents = await response.json();
+                this.renderCorrelatedIncidents();
+            }
+        } catch (error) {
+            console.error('Error loading incidents:', error);
+        }
+    }
+
+    renderCorrelatedIncidents() {
+        const container = document.getElementById('correlated-incidents');
+        if (!container) return;
+
+        if (!this.incidents || this.incidents.length === 0) {
+            container.innerHTML = '<div class="text-center text-gray-400 py-8">No correlated incidents found</div>';
+            return;
+        }
+
+        const html = this.incidents.map(incident => `
+            <div class="incident-flow p-4 rounded-lg">
+                <div class="flex items-center justify-between mb-2">
+                    <h4 class="font-medium text-gray-100">Incident #${incident.id.split('_')[2] || incident.id.slice(-4)}</h4>
+                    <span class="text-xs px-2 py-1 bg-purple-600 text-white rounded">${incident.alert_count} alerts</span>
+                </div>
+                <p class="text-sm text-gray-400 mb-3">${incident.description}</p>
+                <div class="space-y-2">
+                    ${incident.alerts.map(alert => `
+                        <div class="flex items-center justify-between text-xs">
+                            <span class="text-gray-300">${alert.reason}</span>
+                            <span class="text-gray-400 font-mono">${alert.ip}</span>
+                        </div>
+                    `).join('')}
+                    ${incident.has_more ? `<div class="text-xs text-gray-500">+${incident.alert_count - 3} more alerts</div>` : ''}
+                </div>
+                <div class="correlation-line mt-3"></div>
+                <div class="flex items-center justify-between mt-3">
+                    <span class="text-xs text-gray-400">Last activity: ${this.getTimeAgo(incident.last_activity * 1000)}</span>
+                    <button onclick="alertManager.investigateIncident('${incident.id}')" 
+                            class="text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700">Investigate</button>
+                </div>
+            </div>
+        `).join('');
+
+        container.innerHTML = html;
+    }
+
+    investigateIncident(correlationId) {
+        this.showToast(`Investigating incident ${correlationId}...`, 'info');
+        // Filter alerts by correlation ID
+        this.filters.search = '';
+        document.getElementById('alert-search').value = '';
+        this.filterAlerts();
     }
 
     filterAlerts() {
@@ -136,13 +189,11 @@ class AlertManager {
 
     getFilteredAlerts() {
         return this.alerts.filter(alert => {
-            // Severity filter
             if (this.filters.severity !== 'all' && 
                 alert.severity.toLowerCase() !== this.filters.severity) {
                 return false;
             }
             
-            // Status filter
             if (this.filters.status === 'active' && alert.resolved) {
                 return false;
             }
@@ -150,7 +201,6 @@ class AlertManager {
                 return false;
             }
             
-            // Search filter
             if (this.filters.search && 
                 !alert.reason.toLowerCase().includes(this.filters.search) &&
                 !alert.ip.includes(this.filters.search) &&
@@ -187,6 +237,7 @@ class AlertManager {
                                 <span class="severity-badge ${severityBadge}">${alert.severity}</span>
                                 <span class="text-xs text-gray-400 font-mono">${timeAgo}</span>
                                 ${alert.resolved ? '<span class="text-xs px-2 py-1 bg-green-600 text-white rounded">RESOLVED</span>' : ''}
+                                ${alert.correlationId ? '<span class="text-xs px-2 py-1 bg-purple-600 text-white rounded">CORRELATED</span>' : ''}
                             </div>
                             <p class="text-sm font-medium text-gray-100 mb-1">${alert.reason}</p>
                             <div class="flex items-center space-x-4 text-xs text-gray-400">
@@ -209,7 +260,6 @@ class AlertManager {
 
         container.innerHTML = html;
         
-        // Animate alerts
         if (typeof anime !== 'undefined') {
             anime({
                 targets: '.alert-card',
@@ -226,7 +276,6 @@ class AlertManager {
         this.selectedAlert = this.alerts.find(a => a.id === alertId);
         this.renderAlertDetails();
         
-        // Highlight selected alert
         document.querySelectorAll('.alert-card').forEach(card => {
             card.classList.remove('ring-2', 'ring-blue-500');
         });
@@ -265,6 +314,12 @@ class AlertManager {
                         <label class="block text-gray-400 mb-1">Status</label>
                         <p class="text-gray-100">${alert.resolved ? 'Resolved' : 'Active'}</p>
                     </div>
+                    ${alert.correlationId ? `
+                    <div class="col-span-2">
+                        <label class="block text-gray-400 mb-1">Correlation ID</label>
+                        <p class="text-gray-100 font-mono text-xs">${alert.correlationId}</p>
+                    </div>
+                    ` : ''}
                 </div>
                 
                 <div>
@@ -335,7 +390,7 @@ class AlertManager {
                     alert.resolved = true;
                     this.renderAlerts();
                     this.updateStatistics();
-                    this.showNotification(`Alert #${alertId} marked as resolved`, 'success');
+                    this.showToast(`Alert #${alertId} resolved and IP unblocked`, 'success');
                     
                     if (this.selectedAlert && this.selectedAlert.id === alertId) {
                         this.renderAlertDetails();
@@ -346,7 +401,7 @@ class AlertManager {
             }
         } catch (error) {
             console.error('Error resolving alert:', error);
-            this.showNotification('Failed to resolve alert', 'error');
+            this.showToast('Failed to resolve alert', 'error');
         }
     }
 
@@ -361,13 +416,13 @@ class AlertManager {
             });
 
             if (response.ok) {
-                this.showNotification(`IP ${ip} has been blocked`, 'success');
+                this.showToast(`IP ${ip} has been blocked`, 'success');
             } else {
                 throw new Error('Failed to block IP');
             }
         } catch (error) {
             console.error('Error blocking IP:', error);
-            this.showNotification('Failed to block IP', 'error');
+            this.showToast('Failed to block IP', 'error');
         }
     }
 
@@ -419,11 +474,11 @@ class AlertManager {
         a.click();
         window.URL.revokeObjectURL(url);
         
-        this.showNotification(`Exported ${filteredAlerts.length} alerts`, 'success');
+        this.showToast(`Exported ${filteredAlerts.length} alerts`, 'success');
     }
 
     generateCSV(alerts) {
-        const headers = ['ID', 'Timestamp', 'IP', 'API Key', 'Severity', 'Reason', 'Status'];
+        const headers = ['ID', 'Timestamp', 'IP', 'API Key', 'Severity', 'Reason', 'Status', 'Correlation ID'];
         const rows = alerts.map(alert => [
             alert.id,
             new Date(alert.timestamp).toISOString(),
@@ -431,7 +486,8 @@ class AlertManager {
             alert.apiKey,
             alert.severity,
             alert.reason,
-            alert.resolved ? 'Resolved' : 'Active'
+            alert.resolved ? 'Resolved' : 'Active',
+            alert.correlationId || 'N/A'
         ]);
         
         return [headers, ...rows].map(row => row.join(',')).join('\n');
@@ -440,7 +496,8 @@ class AlertManager {
     startAutoRefresh() {
         this.autoRefreshInterval = setInterval(() => {
             this.loadAlerts();
-        }, 15000); // Refresh every 15 seconds
+            this.loadCorrelatedIncidents();
+        }, 15000);
     }
 
     stopAutoRefresh() {
@@ -475,8 +532,17 @@ class AlertManager {
         return `${days}d ago`;
     }
 
-    showNotification(message, type = 'info') {
-        const notification = document.createElement('div');
+    showToast(message, type = 'info') {
+        // Create toast container if it doesn't exist
+        let toastContainer = document.getElementById('toast-container');
+        if (!toastContainer) {
+            toastContainer = document.createElement('div');
+            toastContainer.id = 'toast-container';
+            toastContainer.className = 'fixed top-20 right-4 z-50 flex flex-col gap-2';
+            document.body.appendChild(toastContainer);
+        }
+
+        const toast = document.createElement('div');
         const bgColor = {
             'success': 'bg-green-600',
             'error': 'bg-red-600',
@@ -484,14 +550,26 @@ class AlertManager {
             'info': 'bg-blue-600'
         }[type] || 'bg-blue-600';
         
-        notification.className = `fixed top-20 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm ${bgColor} text-white`;
-        notification.textContent = message;
+        toast.className = `${bgColor} text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 max-w-sm`;
         
-        document.body.appendChild(notification);
+        const icon = {
+            'success': '✓',
+            'error': '✕',
+            'warning': '⚠',
+            'info': 'ℹ'
+        }[type] || 'ℹ';
+        
+        toast.innerHTML = `
+            <span class="text-xl font-bold">${icon}</span>
+            <span class="flex-1">${message}</span>
+            <button onclick="this.parentElement.remove()" class="text-white hover:text-gray-200">✕</button>
+        `;
+        
+        toastContainer.appendChild(toast);
         
         if (typeof anime !== 'undefined') {
             anime({
-                targets: notification,
+                targets: toast,
                 translateX: [300, 0],
                 opacity: [0, 1],
                 duration: 300,
@@ -502,21 +580,20 @@ class AlertManager {
         setTimeout(() => {
             if (typeof anime !== 'undefined') {
                 anime({
-                    targets: notification,
+                    targets: toast,
                     translateX: [0, 300],
                     opacity: [1, 0],
                     duration: 300,
                     easing: 'easeInExpo',
-                    complete: () => document.body.removeChild(notification)
+                    complete: () => toast.remove()
                 });
             } else {
-                document.body.removeChild(notification);
+                toast.remove();
             }
-        }, 4000);
+        }, 5000);
     }
 }
 
-// Initialize alert manager
 let alertManager;
 document.addEventListener('DOMContentLoaded', function() {
     alertManager = new AlertManager();
