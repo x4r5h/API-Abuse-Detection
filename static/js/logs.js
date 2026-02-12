@@ -12,6 +12,7 @@ class LogAnalyzer {
             timeRange: 1
         };
         this.autoRefreshInterval = null;
+        this.eventSource = null;
         this.init();
     }
 
@@ -20,6 +21,41 @@ class LogAnalyzer {
         this.setupEventListeners();
         this.loadLogs();
         this.startAutoRefresh();
+        this.initSSE();
+    }
+
+    initSSE() {
+        if (this.eventSource) {
+            this.eventSource.close();
+        }
+
+        this.eventSource = new EventSource('/api/monitoring/stream');
+
+        this.eventSource.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'connected') return;
+
+                // Refresh logs on any new activity
+                if (msg.type === 'alert' || msg.type === 'block') {
+                    this.loadLogs();
+
+                    if (msg.type === 'alert') {
+                        const data = msg.data;
+                        this.showNotification(`Alert: ${data.reason} (${data.ip})`, 'warning');
+                    }
+                    if (msg.type === 'block') {
+                        this.showNotification(`IP Blocked: ${msg.data.identifier}`, 'error');
+                    }
+                }
+            } catch (e) {
+                console.log('SSE parse error:', e);
+            }
+        };
+
+        this.eventSource.onerror = () => {
+            // EventSource auto-reconnects
+        };
     }
 
     initializeClock() {

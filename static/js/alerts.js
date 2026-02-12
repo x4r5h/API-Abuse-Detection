@@ -6,6 +6,7 @@ class AlertManager {
         this.incidents = [];
         this.selectedAlert = null;
         this.autoRefreshInterval = null;
+        this.eventSource = null;
         this.filters = {
             severity: 'all',
             status: 'active',
@@ -20,6 +21,7 @@ class AlertManager {
         this.loadAlerts();
         this.loadCorrelatedIncidents();
         this.startAutoRefresh();
+        this.initSSE();
     }
 
     initializeClock() {
@@ -107,12 +109,18 @@ class AlertManager {
                     resolved: alert.resolved,
                     correlationId: alert.correlation_id,
                     details: {
-                        requestCount: Math.floor(Math.random() * 1000) + 50,
-                        failedRequests: Math.floor(Math.random() * 50),
-                        userAgent: 'Unknown',
+                        requestCount: 0,
+                        failedRequests: 0,
+                        userAgent: 'Loading...',
                         location: { country: 'Unknown', city: 'Unknown' }
                     }
                 }));
+
+                // Fetch real IP stats for each unique IP
+                const uniqueIPs = [...new Set(this.alerts.map(a => a.ip))];
+                for (const ip of uniqueIPs) {
+                    this.loadIPStats(ip);
+                }
 
                 this.renderAlerts();
                 this.renderTimeline();
@@ -134,6 +142,67 @@ class AlertManager {
         } catch (error) {
             console.error('Error loading incidents:', error);
         }
+    }
+
+    async loadIPStats(ip) {
+        try {
+            const response = await fetch(`/api/monitoring/ip-stats/${ip}`);
+            if (response.ok) {
+                const stats = await response.json();
+                // Update all alerts for this IP with real stats
+                this.alerts.forEach(alert => {
+                    if (alert.ip === ip) {
+                        alert.details.requestCount = stats.total_requests || 0;
+                        alert.details.failedRequests = stats.failed_requests || 0;
+                        alert.details.userAgent = stats.top_user_agent || 'Unknown';
+                    }
+                });
+                // Re-render details if the selected alert matches
+                if (this.selectedAlert && this.selectedAlert.ip === ip) {
+                    this.renderAlertDetails();
+                }
+            }
+        } catch (e) {
+            console.log('IP stats fetch error for', ip, e);
+        }
+    }
+
+    initSSE() {
+        if (this.eventSource) {
+            this.eventSource.close();
+        }
+
+        this.eventSource = new EventSource('/api/monitoring/stream');
+
+        this.eventSource.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'connected') return;
+
+                if (msg.type === 'alert') {
+                    const data = msg.data;
+                    const severity = data.severity || 'INFO';
+                    const toastType = severity === 'CRITICAL' ? 'error' :
+                                     severity === 'HIGH' ? 'error' :
+                                     severity === 'MEDIUM' ? 'warning' : 'info';
+                    this.showToast(`${severity}: ${data.reason} (${data.ip})`, toastType);
+
+                    // Reload alerts to pick up the new one
+                    this.loadAlerts();
+                    this.loadCorrelatedIncidents();
+                }
+
+                if (msg.type === 'block') {
+                    this.showToast(`IP Blocked: ${msg.data.identifier}`, 'warning');
+                }
+            } catch (e) {
+                console.log('SSE parse error:', e);
+            }
+        };
+
+        this.eventSource.onerror = () => {
+            // EventSource auto-reconnects
+        };
     }
 
     renderCorrelatedIncidents() {
@@ -326,7 +395,26 @@ class AlertManager {
                     <label class="block text-gray-400 mb-1">Reason</label>
                     <p class="text-gray-100">${alert.reason}</p>
                 </div>
-                
+
+                <div class="pt-4 border-t border-gray-700">
+                    <h5 class="text-sm font-medium text-gray-300 mb-2">IP Statistics</h5>
+                    <div class="grid grid-cols-3 gap-3 text-sm">
+                        <div class="bg-gray-900 p-3 rounded-lg text-center">
+                            <p class="text-lg font-bold text-blue-400">${alert.details.requestCount.toLocaleString()}</p>
+                            <p class="text-xs text-gray-400">Total Requests</p>
+                        </div>
+                        <div class="bg-gray-900 p-3 rounded-lg text-center">
+                            <p class="text-lg font-bold text-red-400">${alert.details.failedRequests.toLocaleString()}</p>
+                            <p class="text-xs text-gray-400">Failed Requests</p>
+                        </div>
+                        <div class="bg-gray-900 p-3 rounded-lg text-center">
+                            <p class="text-lg font-bold text-yellow-400">${alert.details.requestCount > 0 ? Math.round((alert.details.failedRequests / alert.details.requestCount) * 100) : 0}%</p>
+                            <p class="text-xs text-gray-400">Failure Rate</p>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">User-Agent: ${alert.details.userAgent}</p>
+                </div>
+
                 <div class="pt-4 border-t border-gray-700">
                     <h5 class="text-sm font-medium text-gray-300 mb-2">Recommended Actions</h5>
                     <div class="space-y-2">

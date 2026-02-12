@@ -1,0 +1,18 @@
+# Archive / unused files
+_archive/
+
+# Database
+*.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
+.env
+*.csv
+
+# OS
+.DS_Store
+Thumbs.db

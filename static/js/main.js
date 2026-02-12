@@ -1,4 +1,4 @@
-// main.js - Fixed Dashboard with Better Error Handling
+// main.js - Dashboard with SSE, Live Feed, Threat Level, Dynamic Stats
 
 class ToastNotification {
     constructor() {
@@ -21,7 +21,7 @@ class ToastNotification {
     show(message, type = 'info', duration = 5000) {
         const toast = document.createElement('div');
         toast.className = 'pointer-events-auto transform transition-all duration-300 ease-out';
-        
+
         const icons = {
             success: '✓',
             error: '✕',
@@ -40,7 +40,7 @@ class ToastNotification {
 
         const bgColor = colors[type] || colors.info;
         const icon = icons[type] || icons.info;
-        
+
         toast.innerHTML = `
             <div class="${bgColor} text-white rounded-lg shadow-2xl flex items-start gap-3 p-4 min-w-[320px] max-w-[400px]">
                 <div class="flex-shrink-0">
@@ -51,7 +51,7 @@ class ToastNotification {
                 <div class="flex-1 pt-0.5">
                     <p class="text-sm font-medium leading-tight">${message}</p>
                 </div>
-                <button onclick="this.closest('.transform').remove()" 
+                <button onclick="this.closest('.transform').remove()"
                         class="flex-shrink-0 text-white hover:text-gray-200 transition-colors ml-2">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -59,33 +59,25 @@ class ToastNotification {
                 </button>
             </div>
         `;
-        
-        // Initial state (off-screen)
+
         toast.style.transform = 'translateX(120%)';
         toast.style.opacity = '0';
-        
+
         this.container.appendChild(toast);
-        
-        // Animate in
+
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 toast.style.transform = 'translateX(0)';
                 toast.style.opacity = '1';
             });
         });
-        
-        // Play sound for critical/error
-        if (type === 'critical' || type === 'error') {
-            this.playNotificationSound();
-        }
-        
-        // Auto remove
+
         if (duration > 0) {
             setTimeout(() => {
                 this.remove(toast);
             }, duration);
         }
-        
+
         return toast;
     }
 
@@ -100,21 +92,20 @@ class ToastNotification {
     }
 
     playNotificationSound() {
-        // Create a subtle beep sound using Web Audio API
         try {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
             const gainNode = audioContext.createGain();
-            
+
             oscillator.connect(gainNode);
             gainNode.connect(audioContext.destination);
-            
+
             oscillator.frequency.value = 800;
             oscillator.type = 'sine';
-            
+
             gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
             gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-            
+
             oscillator.start(audioContext.currentTime);
             oscillator.stop(audioContext.currentTime + 0.3);
         } catch (e) {
@@ -122,57 +113,14 @@ class ToastNotification {
         }
     }
 
-    success(message, duration = 4000) {
-        return this.show(message, 'success', duration);
-    }
-
-    error(message, duration = 6000) {
-        return this.show(message, 'error', duration);
-    }
-
-    warning(message, duration = 5000) {
-        return this.show(message, 'warning', duration);
-    }
-
-    info(message, duration = 4000) {
-        return this.show(message, 'info', duration);
-    }
-
-    critical(message, duration = 8000) {
-        return this.show(message, 'critical', duration);
-    }
+    success(message, duration = 4000) { return this.show(message, 'success', duration); }
+    error(message, duration = 6000) { return this.show(message, 'error', duration); }
+    warning(message, duration = 5000) { return this.show(message, 'warning', duration); }
+    info(message, duration = 4000) { return this.show(message, 'info', duration); }
+    critical(message, duration = 8000) { return this.show(message, 'critical', duration); }
 }
 
-// Create global toast instance
 window.toast = new ToastNotification();
-
-// Update the SentinelDashboard class showNotification method
-// Replace the existing showNotification method with:
-/*
-showNotification(message, type = 'info') {
-    window.toast.show(message, type);
-}
-*/
-
-// Also update error handling in loadDashboardData:
-/*
-async loadDashboardData() {
-    try {
-        // ... existing code ...
-    } catch (error) {
-        console.error('Error loading dashboard data:', error);
-        window.toast.error('Failed to load dashboard data. Retrying...');
-        setTimeout(() => this.loadDashboardData(), 5000);
-    }
-}
-*/
-
-// Example usage:
-// window.toast.success('Operation completed successfully!');
-// window.toast.error('Failed to load data');
-// window.toast.warning('Rate limit approaching');
-// window.toast.info('Data refreshed');
-// window.toast.critical('CRITICAL: System under attack!');
 
 
 class SentinelDashboard {
@@ -180,21 +128,274 @@ class SentinelDashboard {
         this.apiBase = '/api/monitoring';
         this.charts = {};
         this.updateInterval = null;
+        this.eventSource = null;
+        this.liveFeedEvents = [];
+        this.sseInitialized = false;
         this.init();
     }
 
     init() {
         this.initializeTypedText();
         this.initializeClock();
-        
-        // Initialize charts first, then load data
+
         setTimeout(() => {
             this.initializeCharts();
             this.loadDashboardData();
+            this.loadStatsComparison();
+            this.loadThreatLevel();
             this.startRealTimeUpdates();
             this.initializeAnimations();
+            this.initSSE();
         }, 100);
     }
+
+    // ==================== SSE ====================
+
+    initSSE() {
+        if (this.eventSource) {
+            this.eventSource.close();
+        }
+
+        this.eventSource = new EventSource(`${this.apiBase}/stream`);
+
+        this.eventSource.onopen = () => {
+            this.updateConnectionStatus(true);
+        };
+
+        this.eventSource.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'connected') {
+                    this.updateConnectionStatus(true);
+                    return;
+                }
+                this.handleSSEEvent(msg);
+            } catch (e) {
+                console.log('SSE parse error:', e);
+            }
+        };
+
+        this.eventSource.onerror = () => {
+            this.updateConnectionStatus(false);
+            // EventSource auto-reconnects
+        };
+    }
+
+    handleSSEEvent(msg) {
+        const eventType = msg.type;
+        const data = msg.data;
+
+        // Add to live feed
+        this.addLiveFeedEvent(eventType, data);
+
+        if (eventType === 'alert') {
+            const severity = data.severity || 'INFO';
+            const toastType = severity === 'CRITICAL' ? 'critical' :
+                             severity === 'HIGH' ? 'error' :
+                             severity === 'MEDIUM' ? 'warning' : 'info';
+
+            window.toast.show(
+                `${severity}: ${data.reason} (${data.ip})`,
+                toastType,
+                6000
+            );
+
+            // Play sound for critical/high alerts
+            if (severity === 'CRITICAL' || severity === 'HIGH') {
+                window.toast.playNotificationSound();
+            }
+
+            // Refresh data
+            this.loadDashboardData();
+            this.loadThreatLevel();
+        }
+
+        if (eventType === 'block') {
+            window.toast.show(
+                `IP Blocked: ${data.identifier} - ${data.reason}`,
+                'warning',
+                5000
+            );
+            this.loadDashboardData();
+            this.loadThreatLevel();
+        }
+    }
+
+    updateConnectionStatus(connected) {
+        const indicator = document.getElementById('connection-indicator');
+        const text = document.getElementById('connection-text');
+        if (indicator) {
+            indicator.className = connected
+                ? 'status-indicator status-online'
+                : 'status-indicator status-critical';
+        }
+        if (text) {
+            text.textContent = connected ? 'Live Connected' : 'Reconnecting...';
+        }
+    }
+
+    // ==================== Live Feed ====================
+
+    addLiveFeedEvent(type, data) {
+        const container = document.getElementById('live-feed-container');
+        if (!container) return;
+
+        const event = { type, data, time: new Date() };
+        this.liveFeedEvents.unshift(event);
+        if (this.liveFeedEvents.length > 20) {
+            this.liveFeedEvents = this.liveFeedEvents.slice(0, 20);
+        }
+
+        const severity = data.severity || '';
+        const colorMap = {
+            'CRITICAL': 'border-red-600 bg-red-900 bg-opacity-20',
+            'HIGH': 'border-red-500 bg-red-900 bg-opacity-10',
+            'MEDIUM': 'border-yellow-500 bg-yellow-900 bg-opacity-10',
+            'LOW': 'border-blue-500 bg-blue-900 bg-opacity-10',
+            '': 'border-gray-600 bg-gray-900 bg-opacity-10'
+        };
+        const colors = colorMap[severity] || colorMap[''];
+
+        let description = '';
+        if (type === 'alert') {
+            description = `Alert: ${data.reason} from ${data.ip}`;
+        } else if (type === 'block') {
+            description = `Blocked: ${data.identifier} - ${data.reason}`;
+        } else {
+            description = `Event: ${type}`;
+        }
+
+        const timeStr = event.time.toLocaleTimeString('en-US', { hour12: false });
+        const severityBadge = severity
+            ? `<span class="text-xs font-bold px-1.5 py-0.5 rounded ${this.getSeverityBadgeClass(severity)}">${severity}</span>`
+            : '';
+
+        const el = document.createElement('div');
+        el.className = `border-l-4 ${colors} p-3 rounded-r-lg transition-all duration-300`;
+        el.style.transform = 'translateX(-20px)';
+        el.style.opacity = '0';
+        el.innerHTML = `
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    ${severityBadge}
+                    <span class="text-sm text-gray-200">${description}</span>
+                </div>
+                <span class="text-xs text-gray-500 font-mono">${timeStr}</span>
+            </div>
+        `;
+
+        // Clear placeholder
+        if (container.querySelector('.text-center')) {
+            container.innerHTML = '';
+        }
+
+        container.insertBefore(el, container.firstChild);
+
+        // Animate in
+        requestAnimationFrame(() => {
+            el.style.transform = 'translateX(0)';
+            el.style.opacity = '1';
+        });
+
+        // Trim excess
+        while (container.children.length > 20) {
+            container.removeChild(container.lastChild);
+        }
+
+        // Update count
+        const countEl = document.getElementById('live-feed-count');
+        if (countEl) {
+            countEl.textContent = `${this.liveFeedEvents.length} events`;
+        }
+    }
+
+    // ==================== Threat Level ====================
+
+    async loadThreatLevel() {
+        try {
+            const response = await fetch(`${this.apiBase}/threat-scores`);
+            if (!response.ok) return;
+            const data = await response.json();
+            this.updateThreatLevelBadge(data.overall_level, data.max_score);
+        } catch (e) {
+            console.log('Threat level fetch error:', e);
+        }
+    }
+
+    updateThreatLevelBadge(level, score) {
+        const badge = document.getElementById('threat-level-badge');
+        const text = document.getElementById('threat-level-text');
+        const scoreEl = document.getElementById('threat-level-score');
+        if (!badge || !text) return;
+
+        text.textContent = level;
+        if (scoreEl) scoreEl.textContent = `(Score: ${score})`;
+
+        const colorMap = {
+            'SAFE': 'bg-green-600',
+            'LOW': 'bg-blue-600',
+            'MEDIUM': 'bg-yellow-600',
+            'HIGH': 'bg-red-600',
+            'CRITICAL': 'bg-red-700'
+        };
+
+        // Remove old classes
+        badge.className = badge.className.replace(/bg-\w+-\d+/g, '').trim();
+        badge.classList.add(colorMap[level] || 'bg-green-600');
+        badge.classList.add('px-6', 'py-3', 'rounded-full', 'text-lg', 'font-bold', 'transition-all', 'duration-500', 'text-white');
+
+        // Add pulsing for critical
+        if (level === 'CRITICAL') {
+            badge.classList.add('animate-pulse');
+        } else {
+            badge.classList.remove('animate-pulse');
+        }
+    }
+
+    // ==================== Stats Comparison ====================
+
+    async loadStatsComparison() {
+        try {
+            const response = await fetch(`${this.apiBase}/stats-comparison`);
+            if (!response.ok) return;
+            const data = await response.json();
+            this.updateTrendIndicators(data);
+        } catch (e) {
+            console.log('Stats comparison fetch error:', e);
+        }
+    }
+
+    updateTrendIndicators(data) {
+        const updateTrend = (elementId, change, label) => {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            const arrow = change >= 0 ? '↑' : '↓';
+            const color = elementId === 'trend-requests'
+                ? (change >= 0 ? 'text-green-400' : 'text-red-400')
+                : (change >= 0 ? 'text-red-400' : 'text-green-400');
+            el.textContent = `${arrow} ${Math.abs(change)}% ${label}`;
+            el.className = `text-xs mt-1 ${color}`;
+        };
+
+        updateTrend('trend-requests', data.requests_change, 'from last hour');
+        updateTrend('trend-failed', data.failed_change, 'from last hour');
+
+        // Alerts: show count
+        const alertsEl = document.getElementById('trend-alerts');
+        if (alertsEl) {
+            alertsEl.textContent = `${data.current_alerts_hour} new this hour`;
+            alertsEl.className = 'text-xs mt-1 text-yellow-400';
+        }
+
+        // Blocked: show count
+        const blockedEl = document.getElementById('trend-blocked');
+        if (blockedEl) {
+            blockedEl.textContent = `Auto-blocked: ${data.current_blocked_auto}`;
+            blockedEl.className = 'text-xs mt-1 text-red-400';
+        }
+    }
+
+    // ==================== Existing methods ====================
 
     initializeTypedText() {
         if (typeof Typed !== 'undefined' && document.getElementById('typed-text')) {
@@ -223,72 +424,58 @@ class SentinelDashboard {
                 minute: '2-digit',
                 second: '2-digit'
             });
-            
+
             const dateString = now.toLocaleDateString('en-US', {
                 weekday: 'short',
                 month: 'short',
                 day: 'numeric'
             });
-            
+
             const timeElement = document.getElementById('current-time');
             if (timeElement) {
                 timeElement.textContent = `${dateString} ${timeString}`;
             }
-            
+
             const lastUpdatedElement = document.getElementById('last-updated');
             if (lastUpdatedElement) {
                 lastUpdatedElement.textContent = 'now';
             }
         };
-        
+
         updateClock();
         setInterval(updateClock, 1000);
     }
 
     async loadDashboardData() {
         try {
-            // Load stats
             const statsResponse = await fetch(`${this.apiBase}/stats`);
             if (!statsResponse.ok) {
                 throw new Error(`Stats API returned ${statsResponse.status}`);
             }
             const statsData = await statsResponse.json();
             this.updateStats(statsData);
-            
-            // Update endpoints table AND chart
+
             if (statsData.top_endpoints && statsData.top_endpoints.length > 0) {
                 this.updateEndpointsTable(statsData.top_endpoints);
-                this.updateEndpointsChart(statsData.top_endpoints);  // Add this line
-            } else {
-                window.toast?.warning('No endpoint data available yet');
+                this.updateEndpointsChart(statsData.top_endpoints);
             }
 
-            // Load timeline for traffic chart
             const timelineResponse = await fetch(`${this.apiBase}/timeline`);
             if (timelineResponse.ok) {
                 const timelineData = await timelineResponse.json();
-                if (timelineData && timelineData.length > 0) {
-                    this.updateTrafficChart(timelineData);
-                }
+                this.updateTrafficChart(timelineData);
             }
 
-            // Load alerts
             const alertsResponse = await fetch(`${this.apiBase}/alerts`);
             if (alertsResponse.ok) {
                 const alertsData = await alertsResponse.json();
                 this.updateAlerts(alertsData.slice(0, 5));
             }
 
-            // Load blocked IPs
             const blockedResponse = await fetch(`${this.apiBase}/blocked`);
             if (blockedResponse.ok) {
                 const blockedData = await blockedResponse.json();
                 this.updateBlockedCount(blockedData.length);
-            }
-
-            // Success notification
-            if (window.toast) {
-                window.toast.success('Dashboard data loaded', 3000);
             }
 
         } catch (error) {
@@ -301,8 +488,12 @@ class SentinelDashboard {
     }
 
     updateEndpointsChart(endpoints) {
-        if (!this.charts.endpoints || !endpoints || endpoints.length === 0) {
-            console.log('Cannot update endpoints chart: chart not initialized or no data');
+        if (!this.charts.endpoints) return;
+
+        if (!endpoints || endpoints.length === 0) {
+            this.charts.endpoints.setOption({
+                series: [{ data: [] }]
+            });
             return;
         }
 
@@ -317,23 +508,22 @@ class SentinelDashboard {
                     data: data
                 }]
             });
-            
-            console.log('Endpoints chart updated with data:', data);
         } catch (error) {
             console.error('Error updating endpoints chart:', error);
         }
     }
+
     updateStats(data) {
         this.animateCounter('total-requests', data.total_requests || 0);
         this.animateCounter('failed-requests', data.failed_requests || 0);
         this.animateCounter('active-alerts-count', data.active_alerts || 0);
         this.animateCounter('blocked-ips-count', data.blocked_clients || 0);
-        
+
         const activeAlertsElement = document.getElementById('active-alerts');
         if (activeAlertsElement) {
             activeAlertsElement.textContent = `${data.active_alerts || 0} Active Alerts`;
         }
-        
+
         const blockedIpsElement = document.getElementById('blocked-ips');
         if (blockedIpsElement) {
             blockedIpsElement.textContent = `${data.blocked_clients || 0} IPs Blocked`;
@@ -349,7 +539,7 @@ class SentinelDashboard {
         if (!element) return;
 
         const startValue = parseInt(element.textContent.replace(/,/g, '')) || 0;
-        
+
         if (typeof anime !== 'undefined') {
             anime({
                 targets: { value: startValue },
@@ -376,10 +566,8 @@ class SentinelDashboard {
 
         container.innerHTML = alerts.map(alert => {
             const timeAgo = this.getTimeAgo(alert.timestamp * 1000);
-            const severityClass = alert.severity.toLowerCase();
-            
             return `
-                <div class="alert-card alert-${severityClass} p-4 rounded-lg cursor-pointer" onclick="window.location.href='/alerts'">
+                <div class="alert-card alert-${alert.severity.toLowerCase()} p-4 rounded-lg cursor-pointer" onclick="window.location.href='/alerts'">
                     <div class="flex items-start justify-between">
                         <div class="flex-1">
                             <div class="flex items-center space-x-2 mb-1">
@@ -434,14 +622,11 @@ class SentinelDashboard {
 
     initTrafficChart() {
         const chartElement = document.getElementById('traffic-chart');
-        if (!chartElement || typeof echarts === 'undefined') {
-            console.warn('Traffic chart element or echarts not available');
-            return;
-        }
+        if (!chartElement || typeof echarts === 'undefined') return;
 
         try {
             this.charts.traffic = echarts.init(chartElement);
-            
+
             const option = {
                 backgroundColor: 'transparent',
                 grid: {
@@ -452,12 +637,13 @@ class SentinelDashboard {
                 },
                 xAxis: {
                     type: 'category',
-                    data: [],
+                    data: ['No data yet'],
                     axisLine: { lineStyle: { color: '#374151' } },
                     axisLabel: { color: '#9CA3AF' }
                 },
                 yAxis: {
                     type: 'value',
+                    min: 0,
                     axisLine: { lineStyle: { color: '#374151' } },
                     axisLabel: { color: '#9CA3AF' },
                     splitLine: { lineStyle: { color: '#374151' } }
@@ -466,7 +652,7 @@ class SentinelDashboard {
                     {
                         name: 'Requests',
                         type: 'line',
-                        data: [],
+                        data: [0],
                         smooth: true,
                         lineStyle: { color: '#3742fa', width: 3 },
                         areaStyle: {
@@ -499,8 +685,14 @@ class SentinelDashboard {
     }
 
     updateTrafficChart(timelineData) {
-        if (!this.charts.traffic || !timelineData || timelineData.length === 0) {
-            console.log('Cannot update traffic chart: chart not initialized or no data');
+        if (!this.charts.traffic) return;
+
+        if (!timelineData || timelineData.length === 0) {
+            // Show empty axes
+            this.charts.traffic.setOption({
+                xAxis: { data: ['No data yet'] },
+                series: [{ data: [0] }]
+            });
             return;
         }
 
@@ -523,7 +715,7 @@ class SentinelDashboard {
 
         try {
             this.charts.endpoints = echarts.init(chartElement);
-            
+
             const option = {
                 backgroundColor: 'transparent',
                 series: [
@@ -531,7 +723,7 @@ class SentinelDashboard {
                         type: 'pie',
                         radius: ['40%', '70%'],
                         center: ['50%', '50%'],
-                        data: [],
+                        data: [{ value: 0, name: 'No data' }],
                         itemStyle: {
                             borderRadius: 8,
                             borderColor: '#1a1a1a',
@@ -566,13 +758,13 @@ class SentinelDashboard {
         const now = Date.now();
         const diff = now - timestamp;
         const minutes = Math.floor(diff / 60000);
-        
+
         if (minutes < 1) return 'Just now';
         if (minutes < 60) return `${minutes}m ago`;
-        
+
         const hours = Math.floor(minutes / 60);
         if (hours < 24) return `${hours}h ago`;
-        
+
         const days = Math.floor(hours / 24);
         return `${days}d ago`;
     }
@@ -590,6 +782,8 @@ class SentinelDashboard {
     startRealTimeUpdates() {
         this.updateInterval = setInterval(() => {
             this.loadDashboardData();
+            this.loadStatsComparison();
+            this.loadThreatLevel();
             this.updateLastUpdated();
         }, 10000);
     }
@@ -603,7 +797,7 @@ class SentinelDashboard {
 
     initializeAnimations() {
         if (typeof anime === 'undefined') return;
-        
+
         anime({
             targets: '.metric-card',
             translateY: [20, 0],
@@ -628,48 +822,14 @@ class SentinelDashboard {
         }
     }
 
-    // showNotification(message, type = 'info') {
-    //     const notification = document.createElement('div');
-    //     notification.className = `fixed top-20 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm ${
-    //         type === 'success' ? 'bg-green-600' : 
-    //         type === 'error' ? 'bg-red-600' : 
-    //         'bg-blue-600'
-    //     } text-white`;
-    //     notification.textContent = message;
-        
-    //     document.body.appendChild(notification);
-        
-    //     if (typeof anime !== 'undefined') {
-    //         anime({
-    //             targets: notification,
-    //             translateX: [300, 0],
-    //             opacity: [0, 1],
-    //             duration: 300,
-    //             easing: 'easeOutExpo'
-    //         });
-    //     }
-        
-    //     setTimeout(() => {
-    //         if (typeof anime !== 'undefined') {
-    //             anime({
-    //                 targets: notification,
-    //                 translateX: [0, 300],
-    //                 opacity: [1, 0],
-    //                 duration: 300,
-    //                 easing: 'easeInExpo',
-    //                 complete: () => document.body.removeChild(notification)
-    //             });
-    //         } else {
-    //             document.body.removeChild(notification);
-    //         }
-    //     }, 3000);
-    // }
-
     destroy() {
         if (this.updateInterval) {
             clearInterval(this.updateInterval);
         }
-        
+        if (this.eventSource) {
+            this.eventSource.close();
+        }
+
         Object.values(this.charts).forEach(chart => {
             if (chart && chart.dispose) {
                 chart.dispose();
@@ -681,19 +841,8 @@ class SentinelDashboard {
 function refreshDashboard() {
     if (window.dashboard) {
         window.dashboard.loadDashboardData();
-        
-        const button = event.target.closest('button');
-        if (button) {
-            const icon = button.querySelector('svg');
-            if (icon && typeof anime !== 'undefined') {
-                anime({
-                    targets: icon,
-                    rotate: 360,
-                    duration: 1000,
-                    easing: 'easeInOutQuad'
-                });
-            }
-        }
+        window.dashboard.loadStatsComparison();
+        window.dashboard.loadThreatLevel();
     }
 }
 
@@ -707,7 +856,7 @@ async function blockIP(ip) {
             });
 
             if (response.ok) {
-                showNotification(`IP ${ip} has been blocked`, 'success');
+                window.toast.success(`IP ${ip} has been blocked`);
                 if (window.dashboard) {
                     setTimeout(() => window.dashboard.loadDashboardData(), 1000);
                 }
@@ -716,50 +865,13 @@ async function blockIP(ip) {
             }
         } catch (error) {
             console.error('Error blocking IP:', error);
-            showNotification('Failed to block IP', 'error');
+            window.toast.error('Failed to block IP');
         }
     }
 }
 
 function investigateIP(ip) {
     window.location.href = `/ip-management?ip=${ip}`;
-}
-
-function showNotification(message, type = 'info') {
-    const notification = document.createElement('div');
-    notification.className = `fixed top-20 right-4 z-50 p-4 rounded-lg shadow-lg max-w-sm ${
-        type === 'success' ? 'bg-green-600' : 
-        type === 'error' ? 'bg-red-600' : 
-        'bg-blue-600'
-    } text-white`;
-    notification.textContent = message;
-    
-    document.body.appendChild(notification);
-    
-    if (typeof anime !== 'undefined') {
-        anime({
-            targets: notification,
-            translateX: [300, 0],
-            opacity: [0, 1],
-            duration: 300,
-            easing: 'easeOutExpo'
-        });
-    }
-    
-    setTimeout(() => {
-        if (typeof anime !== 'undefined') {
-            anime({
-                targets: notification,
-                translateX: [0, 300],
-                opacity: [1, 0],
-                duration: 300,
-                easing: 'easeInExpo',
-                complete: () => document.body.removeChild(notification)
-            });
-        } else {
-            document.body.removeChild(notification);
-        }
-    }, 3000);
 }
 
 document.addEventListener('DOMContentLoaded', function() {
